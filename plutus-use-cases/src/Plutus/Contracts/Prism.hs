@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeApplications   #-}
 {-# LANGUAGE TypeOperators      #-}
 
+{-# LANGUAGE TemplateHaskell    #-}
 {-
 This module and its submodules define the Plutus part of a credential
 management dapp such as Atala PRISM / Mirror.
@@ -60,6 +61,7 @@ module Plutus.Contracts.Prism(
     , PrismSchema
     , PrismError(..)
     , contract
+    , saveFlat
     ) where
 
 import           Data.Aeson                          (FromJSON, ToJSON)
@@ -70,6 +72,25 @@ import           Plutus.Contracts.Prism.StateMachine
 import           Plutus.Contracts.Prism.Unlock
 
 import           Plutus.Contract
+
+
+
+
+
+import qualified PlutusTx
+
+
+
+import qualified Data.ByteString                     as BS
+import           Flat
+import qualified PlutusCore                          as P
+import qualified PlutusCore.Name                     as P
+import           PlutusCore.Pretty
+import qualified PlutusIR.Core.Type                  as PIR
+import           PlutusTx.Code
+
+
+
 
 -- | The roles that we pass to 'contract'.
 data Role
@@ -107,3 +128,13 @@ contract = do
         Mirror         -> mapError MirrorErr mirror
         UnlockSTO      -> mapError UnlockSTOErr subscribeSTO
         UnlockExchange -> mapError UnlockExchangeErr unlockExchange
+
+
+
+
+
+
+
+Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
+saveFlat :: String -> IO ()
+saveFlat = flip BS.writeFile (flat result)

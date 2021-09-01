@@ -14,6 +14,7 @@ module Plutus.Contracts.Prism.StateMachine(
     , typedValidator
     , machineClient
     , mkMachineClient
+    , mkValidator
     ) where
 
 import           Data.Aeson                        (FromJSON, ToJSON)
@@ -116,3 +117,7 @@ PlutusTx.makeLift ''IDState
 PlutusTx.makeLift ''IDAction
 PlutusTx.unstableMakeIsData ''IDState
 PlutusTx.unstableMakeIsData ''IDAction
+
+
+{-# INLINABLE mkValidator #-}
+mkValidator = StateMachine.mkValidator . credentialStateMachine

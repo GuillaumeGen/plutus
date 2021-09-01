@@ -28,6 +28,7 @@ module Plutus.Contracts.MultiSigStateMachine(
     , MultiSigError(..)
     , MultiSigSchema
     , contract
+    , saveFlat
     ) where
 
 import           Control.Lens                 (makeClassyPrisms)
@@ -53,6 +54,22 @@ import qualified PlutusTx
 import           PlutusTx.Prelude             hiding (Applicative (..))
 
 import qualified Prelude                      as Haskell
+
+
+
+
+
+import qualified Data.ByteString              as BS
+import           Flat
+import qualified PlutusCore                   as P
+import qualified PlutusCore.Name              as P
+import           PlutusCore.Pretty
+import qualified PlutusIR.Core.Type           as PIR
+import           PlutusTx.Code
+
+
+
+
 
 -- $multisig
 --   The n-out-of-m multisig contract works like a joint account of
@@ -278,3 +295,13 @@ PlutusTx.makeLift ''MSState
 PlutusTx.makeLift ''Params
 PlutusTx.unstableMakeIsData ''Input
 PlutusTx.makeLift ''Input
+
+
+
+
+
+
+
+Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
+saveFlat :: Haskell.String -> Haskell.IO ()
+saveFlat = flip BS.writeFile (flat result)

@@ -26,7 +26,8 @@ module Plutus.Contracts.PingPong(
     initialise,
     runStop,
     runWaitForUpdate,
-    combined
+    combined,
+    saveFlat
     ) where
 
 import           Control.Lens
@@ -45,6 +46,22 @@ import           Plutus.Contract
 import           Plutus.Contract.StateMachine (AsSMContractError (..), OnChainState, State (..), Void)
 import qualified Plutus.Contract.StateMachine as SM
 import qualified Prelude                      as Haskell
+
+
+
+
+
+import qualified Data.ByteString              as BS
+import           Flat
+import qualified PlutusCore                   as P
+import qualified PlutusCore.Name              as P
+import           PlutusCore.Pretty
+import qualified PlutusIR.Core.Type           as PIR
+import           PlutusTx.Code
+
+
+
+
 
 data PingPongState = Pinged | Ponged | Stopped
     deriving stock (Haskell.Eq, Haskell.Show, Generic)
@@ -165,3 +182,13 @@ PlutusTx.unstableMakeIsData ''PingPongState
 PlutusTx.makeLift ''PingPongState
 PlutusTx.unstableMakeIsData ''Input
 PlutusTx.makeLift ''Input
+
+
+
+
+
+
+
+Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
+saveFlat :: Haskell.String -> Haskell.IO ()
+saveFlat = flip BS.writeFile (flat result)

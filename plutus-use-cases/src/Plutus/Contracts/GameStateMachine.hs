@@ -31,6 +31,7 @@ module Plutus.Contracts.GameStateMachine(
     , GuessArgs(..)
     , GameStateMachineSchema, GameError
     , token
+    , saveFlat
     ) where
 
 import           Control.Monad                (void)
@@ -53,6 +54,21 @@ import qualified Plutus.Contract.StateMachine as SM
 import           Plutus.Contract
 
 import qualified Prelude                      as Haskell
+
+
+
+
+import qualified Data.ByteString              as BS
+import           Flat
+import qualified PlutusCore                   as P
+import qualified PlutusCore.Name              as P
+import           PlutusCore.Pretty
+import qualified PlutusIR.Core.Type           as PIR
+import           PlutusTx.Code
+
+
+
+
 
 newtype HashedString = HashedString ByteString
     deriving newtype (PlutusTx.IsData, Eq)
@@ -219,3 +235,13 @@ PlutusTx.unstableMakeIsData ''GameInput
 PlutusTx.makeLift ''GameInput
 PlutusTx.makeLift ''GameToken
 PlutusTx.unstableMakeIsData ''GameToken
+
+
+
+
+
+
+
+Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
+saveFlat :: Haskell.String -> Haskell.IO ()
+saveFlat = flip BS.writeFile (flat result)

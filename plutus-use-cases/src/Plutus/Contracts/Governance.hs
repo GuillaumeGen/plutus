@@ -29,6 +29,7 @@ module Plutus.Contracts.Governance (
     , GovState(..)
     , Voting(..)
     , GovError
+    , saveFlat
     ) where
 
 import           Control.Lens                 (makeClassyPrisms, review)
@@ -51,6 +52,22 @@ import qualified PlutusTx
 import qualified PlutusTx.AssocMap            as AssocMap
 import           PlutusTx.Prelude
 import qualified Prelude                      as Haskell
+
+
+
+
+
+import qualified Data.ByteString              as BS
+import           Flat
+import qualified PlutusCore                   as P
+import qualified PlutusCore.Name              as P
+import           PlutusCore.Pretty
+import qualified PlutusIR.Core.Type           as PIR
+import           PlutusTx.Code
+
+
+
+
 
 -- $governance
 -- * When the contract starts it produces a number of tokens that represent voting rights.
@@ -232,3 +249,13 @@ PlutusTx.unstableMakeIsData ''GovState
 PlutusTx.makeLift ''GovState
 PlutusTx.unstableMakeIsData ''GovInput
 PlutusTx.makeLift ''GovInput
+
+
+
+
+
+
+
+Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
+saveFlat :: Haskell.String -> Haskell.IO ()
+saveFlat = flip BS.writeFile (flat result)

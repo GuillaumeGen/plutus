@@ -78,6 +78,7 @@ module Plutus.Contracts.Stablecoin(
     , stableCoins
     , reserveCoins
     , checkValidState
+    , saveFlat
     ) where
 
 import           Control.Monad                (forever, guard)
@@ -101,6 +102,21 @@ import qualified PlutusTx                     as PlutusTx
 import           PlutusTx.Prelude
 import           PlutusTx.Ratio               as R
 import qualified Prelude                      as Haskell
+
+
+
+
+
+import qualified Data.ByteString              as BS
+import           Flat
+import qualified PlutusCore                   as P
+import qualified PlutusCore.Name              as P
+import           PlutusCore.Pretty
+import qualified PlutusIR.Core.Type           as PIR
+import           PlutusTx.Code
+
+
+
 
 -- | Conversion rate from peg currency (eg. USD) to base currency (eg. Ada)
 type ConversionRate = Ratio Integer
@@ -273,7 +289,7 @@ bankReservesValue :: Stablecoin -> BankState -> Value
 bankReservesValue Stablecoin{scBaseCurrency} BankState{bsReserves = BC i} =
     Value.assetClassValue scBaseCurrency i
 
-{-# INLINEABLE transition #-}
+{-# NOINLINE transition #-}
 transition :: Stablecoin -> State BankState -> Input -> Maybe (TxConstraints Void Void, State BankState)
 transition sc State{stateData=oldState} input =
     let toSmState state = State{stateData=state, stateValue=bankReservesValue sc state}
@@ -435,3 +451,14 @@ PlutusTx.unstableMakeIsData ''BankState
 PlutusTx.unstableMakeIsData ''Stablecoin
 PlutusTx.unstableMakeIsData ''SCAction
 PlutusTx.unstableMakeIsData ''Input
+
+
+
+
+
+
+mkValidator s = StateMachine.mkValidator (stablecoinStateMachine s)
+
+Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
+saveFlat :: Haskell.String -> Haskell.IO ()
+saveFlat = flip BS.writeFile (flat result)

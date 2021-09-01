@@ -20,7 +20,8 @@ module Plutus.Contracts.Auction(
     auctionBuyer,
     auctionSeller,
     AuctionOutput(..),
-    AuctionError(..)
+    AuctionError(..),
+    saveFlat
     ) where
 
 import           Control.Lens                     (makeClassyPrisms)
@@ -46,6 +47,28 @@ import qualified Plutus.Contracts.Currency        as Currency
 import qualified PlutusTx                         as PlutusTx
 import           PlutusTx.Prelude
 import qualified Prelude                          as Haskell
+
+
+
+
+
+
+
+
+import qualified Data.ByteString                  as BS
+import           Flat
+import qualified PlutusCore                       as P
+import qualified PlutusCore.Name                  as P
+import           PlutusCore.Pretty
+import qualified PlutusIR.Core.Type               as PIR
+import           PlutusTx.Code
+
+
+
+
+
+
+
 
 -- | Definition of an auction
 data AuctionParams
@@ -326,3 +349,13 @@ auctionBuyer currency params = do
         Nothing -> SM.waitForUpdateUntil client (apEndTime params) >>= \case
             WaitingResult (Ongoing s) -> loop s
             _                         -> logWarn CurrentStateNotFound
+
+
+
+
+
+Just result =
+    let mkValidator c f = SM.mkValidator (auctionStateMachine c f) in
+    getPir $$(PlutusTx.compile [|| mkValidator ||])
+saveFlat :: Haskell.String -> Haskell.IO ()
+saveFlat = flip BS.writeFile (flat result)

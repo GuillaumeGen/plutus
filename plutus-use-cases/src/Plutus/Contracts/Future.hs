@@ -42,6 +42,7 @@ module Plutus.Contracts.Future(
     -- * Test data
     , testAccounts
     , setupTokensTrace
+    , saveFlat
     ) where
 
 import           Control.Lens                     (makeClassyPrisms, prism', review)
@@ -83,6 +84,22 @@ import qualified Wallet.Emulator.Stream           as Stream
 import qualified Wallet.Emulator.Wallet           as Wallet
 
 import qualified Prelude                          as Haskell
+
+
+
+
+
+import qualified Data.ByteString                  as BS
+import           Flat
+import qualified PlutusCore                       as P
+import qualified PlutusCore.Name                  as P
+import           PlutusCore.Pretty
+import qualified PlutusIR.Core.Type               as PIR
+import           PlutusTx.Code
+
+
+
+
 
 -- $future
 -- A futures contract in Plutus. This example illustrates a number of concepts.
@@ -653,3 +670,15 @@ PlutusTx.makeLift ''FutureState
 PlutusTx.unstableMakeIsData ''FutureState
 PlutusTx.makeLift ''FutureAction
 PlutusTx.unstableMakeIsData ''FutureAction
+
+
+
+
+
+
+
+Just result =
+    let mkValidator f g = SM.mkValidator (futureStateMachine f g) in
+    getPir $$(PlutusTx.compile [|| mkValidator ||])
+saveFlat :: Haskell.String -> Haskell.IO ()
+saveFlat = flip BS.writeFile (flat result)
