@@ -142,5 +142,5 @@ Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
 saveFlat :: String -> IO ()
 saveFlat = flip BS.writeFile (flat result)
 
-savePirFile :: Haskell.String -> Haskell.IO ()
-savePirFile = flip Haskell.writeFile (show $ prettyClassicDebug result)
+savePirFile :: String -> IO ()
+savePirFile = flip writeFile (P.show $ prettyClassicDebug result)

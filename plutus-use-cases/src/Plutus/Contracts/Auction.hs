@@ -23,7 +23,8 @@ module Plutus.Contracts.Auction(
     AuctionError(..),
     ThreadToken,
     SM.getThreadToken,
-    saveFlat
+    saveFlat,
+    savePirFile
     ) where
 
 import           Control.Lens                     (makeClassyPrisms)
@@ -357,12 +358,10 @@ auctionBuyer slotCfg currency params = do
 
 
 
-Just result =
-    let mkValidator c f = SM.mkValidator (auctionStateMachine c f) in
-    getPir $$(PlutusTx.compile [|| mkValidator ||])
+Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
 
 saveFlat :: Haskell.String -> Haskell.IO ()
 saveFlat = flip BS.writeFile (flat result)
 
 savePirFile :: Haskell.String -> Haskell.IO ()
-savePirFile = flip Haskell.writeFile (show $ prettyClassicDebug result)
+savePirFile = flip Haskell.writeFile (P.show $ prettyClassicDebug result)
