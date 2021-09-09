@@ -23,12 +23,13 @@ module Crowdfunding where
 
 import           Control.Applicative         (Applicative (pure))
 import           Control.Monad               (void)
-import           Ledger                      (PubKeyHash, ScriptContext (..), TxInfo (..), Validator, pubKeyHash, txId)
+import           Data.Default                (Default (def))
+import           Ledger                      (POSIXTime, POSIXTimeRange, PubKeyHash, ScriptContext (..), TxInfo (..),
+                                              Validator, pubKeyHash, txId)
 import qualified Ledger
 import qualified Ledger.Contexts             as V
 import qualified Ledger.Interval             as Interval
 import qualified Ledger.Scripts              as Scripts
-import           Ledger.Slot                 (Slot, SlotRange)
 import qualified Ledger.TimeSlot             as TimeSlot
 import qualified Ledger.Typed.Scripts        as Scripts hiding (validatorHash)
 import           Ledger.Value                (Value)
@@ -44,9 +45,9 @@ import qualified Wallet.Emulator             as Emulator
 
 -- | A crowdfunding campaign.
 data Campaign = Campaign
-    { campaignDeadline           :: Slot
+    { campaignDeadline           :: POSIXTime
     -- ^ The date by which the campaign funds can be contributed.
-    , campaignCollectionDeadline :: Slot
+    , campaignCollectionDeadline :: POSIXTime
     -- ^ The date by which the campaign owner has to collect the funds
     , campaignOwner              :: PubKeyHash
     -- ^ Public key of the campaign owner. This key is entitled to retrieve the
@@ -65,8 +66,7 @@ PlutusTx.unstableMakeIsData ''CampaignAction
 PlutusTx.makeLift ''CampaignAction
 
 type CrowdfundingSchema =
-    BlockchainActions
-        .\/ Endpoint "schedule collection" ()
+        Endpoint "schedule collection" ()
         .\/ Endpoint "contribute" Contribution
 
 newtype Contribution = Contribution
@@ -77,7 +77,7 @@ newtype Contribution = Contribution
 
 -- | Construct a 'Campaign' value from the campaign parameters,
 --   using the wallet's public key.
-mkCampaign :: Slot -> Slot -> Wallet -> Campaign
+mkCampaign :: POSIXTime -> POSIXTime -> Wallet -> Campaign
 mkCampaign ddl collectionDdl ownerWallet =
     Campaign
         { campaignDeadline = ddl
@@ -85,13 +85,13 @@ mkCampaign ddl collectionDdl ownerWallet =
         , campaignOwner = pubKeyHash $ Emulator.walletPubKey ownerWallet
         }
 
--- | The 'SlotRange' during which the funds can be collected
-collectionRange :: Campaign -> SlotRange
+-- | The 'POSIXTimeRange' during which the funds can be collected
+collectionRange :: Campaign -> POSIXTimeRange
 collectionRange cmp =
-    Interval.interval (campaignDeadline cmp) (campaignCollectionDeadline cmp)
+    Interval.interval (campaignDeadline cmp) (campaignCollectionDeadline cmp - 1)
 
--- | The 'SlotRange' during which a refund may be claimed
-refundRange :: Campaign -> SlotRange
+-- | The 'POSIXTimeRange' during which a refund may be claimed
+refundRange :: Campaign -> POSIXTimeRange
 refundRange cmp =
     Interval.from (campaignCollectionDeadline cmp)
 
@@ -111,14 +111,14 @@ typedValidator = Scripts.mkTypedValidatorParam @Crowdfunding
 validRefund :: Campaign -> PubKeyHash -> TxInfo -> Bool
 validRefund campaign contributor txinfo =
     -- Check that the transaction falls in the refund range of the campaign
-    Interval.contains (TimeSlot.slotRangeToPOSIXTimeRange $ refundRange campaign) (txInfoValidRange txinfo)
+    (refundRange campaign `Interval.contains` txInfoValidRange txinfo)
     -- Check that the transaction is signed by the contributor
     && (txinfo `V.txSignedBy` contributor)
 
 validCollection :: Campaign -> TxInfo -> Bool
 validCollection campaign txinfo =
     -- Check that the transaction falls in the collection range of the campaign
-    (TimeSlot.slotRangeToPOSIXTimeRange (collectionRange campaign) `Interval.contains` txInfoValidRange txinfo)
+    (collectionRange campaign `Interval.contains` txInfoValidRange txinfo)
     -- Check that the transaction is signed by the campaign owner
     && (txinfo `V.txSignedBy` campaignOwner campaign)
 
@@ -146,13 +146,13 @@ campaignAddress = Scripts.validatorHash . contributionScript
 
 -- | The crowdfunding contract for the 'Campaign'.
 crowdfunding :: AsContractError e => Campaign -> Contract () CrowdfundingSchema e ()
-crowdfunding c = contribute c `select` scheduleCollection c
+crowdfunding c = selectList [contribute c, scheduleCollection c]
 
 -- | A sample campaign
-theCampaign :: Campaign
-theCampaign = Campaign
-    { campaignDeadline = 40
-    , campaignCollectionDeadline = 60
+theCampaign :: POSIXTime -> Campaign
+theCampaign startTime = Campaign
+    { campaignDeadline = startTime + 40000
+    , campaignCollectionDeadline = startTime + 60000
     , campaignOwner = pubKeyHash $ Emulator.walletPubKey (Emulator.Wallet 1)
     }
 
@@ -160,16 +160,15 @@ theCampaign = Campaign
 --   an endpoint that allows the user to enter their public key and the
 --   contribution. Then waits until the campaign is over, and collects the
 --   refund if the funding was not collected.
-contribute :: AsContractError e => Campaign -> Contract () CrowdfundingSchema e ()
-contribute cmp = do
-    Contribution{contribValue} <- endpoint @"contribute"
+contribute :: AsContractError e => Campaign -> Promise () CrowdfundingSchema e ()
+contribute cmp = endpoint @"contribute" $ \Contribution{contribValue} -> do
     contributor <- pubKeyHash <$> ownPubKey
     let inst = typedValidator cmp
         tx = Constraints.mustPayToTheScript contributor contribValue
-                <> Constraints.mustValidateIn (Ledger.interval 1 (campaignDeadline cmp))
+                <> Constraints.mustValidateIn (Interval.to (campaignDeadline cmp))
     txid <- fmap txId (submitTxConstraints inst tx)
 
-    utxo <- watchAddressUntil (Scripts.validatorAddress inst) (campaignCollectionDeadline cmp)
+    utxo <- watchAddressUntilTime (Scripts.validatorAddress inst) (campaignCollectionDeadline cmp)
 
     -- 'utxo' is the set of unspent outputs at the campaign address at the
     -- collection deadline. If 'utxo' still contains our own contribution
@@ -186,21 +185,20 @@ contribute cmp = do
 -- | The campaign owner's branch of the contract for a given 'Campaign'. It
 --   watches the campaign address for contributions and collects them if
 --   the funding goal was reached in time.
-scheduleCollection :: AsContractError e => Campaign -> Contract () CrowdfundingSchema e ()
-scheduleCollection cmp = do
-    let inst = typedValidator cmp
-
+scheduleCollection :: AsContractError e => Campaign -> Promise () CrowdfundingSchema e ()
+scheduleCollection cmp =
     -- Expose an endpoint that lets the user fire the starting gun on the
     -- campaign. (This endpoint isn't technically necessary, we could just
     -- run the 'trg' action right away)
-    () <- endpoint @"schedule collection"
+    endpoint @"schedule collection" $ \() -> do
+        let inst = typedValidator cmp
 
-    _ <- awaitSlot (campaignDeadline cmp)
-    unspentOutputs <- utxoAt (Scripts.validatorAddress inst)
+        _ <- awaitTime $ campaignDeadline cmp
+        unspentOutputs <- utxoAt (Scripts.validatorAddress inst)
 
-    let tx = Typed.collectFromScript unspentOutputs Collect
-            <> Constraints.mustValidateIn (collectionRange cmp)
-    void $ submitTxConstraintsSpending inst unspentOutputs tx
+        let tx = Typed.collectFromScript unspentOutputs Collect
+                <> Constraints.mustValidateIn (collectionRange cmp)
+        void $ submitTxConstraintsSpending inst unspentOutputs tx
 
 {- note [Transactions in the crowdfunding campaign]
 
@@ -238,7 +236,7 @@ to change.
 -}
 
 endpoints :: AsContractError e => Contract () CrowdfundingSchema e ()
-endpoints = crowdfunding theCampaign
+endpoints = crowdfunding (theCampaign $ TimeSlot.scSlotZeroTime def)
 
 mkSchemaDefinitions ''CrowdfundingSchema
 

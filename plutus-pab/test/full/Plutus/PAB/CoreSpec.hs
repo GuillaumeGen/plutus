@@ -14,6 +14,8 @@ module Plutus.PAB.CoreSpec
     , stopContractInstanceTest
     , walletFundsChangeTest
     , observableStateChangeTest
+    , runScenario
+    , assertEqual
     ) where
 
 import           Control.Lens                             ((&), (+~), (^.))
@@ -51,13 +53,10 @@ import           Plutus.Contracts.PingPong                (PingPongState (..))
 import           Plutus.PAB.Core                          as Core
 import           Plutus.PAB.Core.ContractInstance         (ContractInstanceMsg)
 import           Plutus.PAB.Core.ContractInstance.STM     (BlockchainEnv (..))
-import           Plutus.PAB.Db.Eventful.Command           ()
-import qualified Plutus.PAB.Db.Eventful.Query             as Query
 import           Plutus.PAB.Effects.Contract              (ContractEffect, serialisableState)
 import           Plutus.PAB.Effects.Contract.Builtin      (Builtin)
 import qualified Plutus.PAB.Effects.Contract.Builtin      as Builtin
 import           Plutus.PAB.Effects.Contract.ContractTest (TestContracts (..))
-import           Plutus.PAB.Effects.EventLog              (EventLogEffect)
 import           Plutus.PAB.Events.ContractInstanceState  (PartiallyDecodedResponse)
 import           Plutus.PAB.Simulator                     (Simulation, TxCounts (..))
 import qualified Plutus.PAB.Simulator                     as Simulator
@@ -77,7 +76,7 @@ import           Wallet.Rollup.Types                      (DereferencedInput, de
 import           Wallet.Types                             (ContractInstanceId)
 
 tests :: TestTree
-tests = testGroup "Plutus.PAB.Core" [installContractTests, executionTests]
+tests = testGroup "Plutus.PAB.Core" [activateContractTests, executionTests]
 
 runScenario :: Simulation (Builtin TestContracts) a -> IO ()
 runScenario sim = do
@@ -89,10 +88,10 @@ runScenario sim = do
 defaultWallet :: Wallet
 defaultWallet = Wallet 1
 
-installContractTests :: TestTree
-installContractTests =
+activateContractTests :: TestTree
+activateContractTests =
     testGroup
-        "installContract scenario"
+        "activateContract scenario"
         [ testCase "Initially there are no contracts active" $
             runScenario $ do
                 active <- Simulator.activeContracts
@@ -166,7 +165,7 @@ walletFundsChangeTest = runScenario $ do
     let stream = WS.walletFundsChange defaultWallet env
     (initialValue, next) <- liftIO (WS.readOne stream)
     (wllt, pk) <- Simulator.addWallet
-    _ <- Simulator.handleAgentThread defaultWallet $ WAPI.payToPublicKey WAPI.defaultSlotRange payment pk
+    _ <- Simulator.payToPublicKey defaultWallet pk payment
     nextStream <- case next of { Nothing -> throwError (OtherError "no next value"); Just a -> pure a; }
     (finalValue, _) <- liftIO (WS.readOne nextStream)
     let difference = initialValue <> inv finalValue
@@ -210,8 +209,8 @@ currencyTest =
               createCurrency instanceId mps
               result <- Simulator.waitForState getCurrency instanceId
               assertTxCounts
-                "Forging the currency should produce two valid transactions."
-                (initialTxCounts & Simulator.txValidated +~ 2)
+                "Minting the currency should produce one valid transaction."
+                (initialTxCounts & Simulator.txValidated +~ 1)
 
 guessingGameTest :: TestTree
 guessingGameTest =

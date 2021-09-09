@@ -21,7 +21,7 @@ import           Test.Tasty
 w1 :: Wallet
 w1 = Wallet 1
 
-theContract :: Contract () BlockchainActions PubKeyError ()
+theContract :: Contract () EmptySchema PubKeyError ()
 theContract = do
   (txOutRef, txOutTx, pkInst) <- pubKeyContract (Ledger.pubKeyHash $ walletPubKey w1) (Ada.lovelaceValueOf 10)
   let lookups = ScriptLookups
@@ -29,6 +29,7 @@ theContract = do
                   , slTxOutputs = Map.singleton txOutRef txOutTx
                   , slOtherScripts = Map.singleton (Scripts.validatorAddress pkInst) (Scripts.validatorScript pkInst)
                   , slOtherData = Map.empty
+                  , slPubKeyHashes = Map.empty
                   , slTypedValidator = Nothing
                   , slOwnPubkey = Nothing
                   }

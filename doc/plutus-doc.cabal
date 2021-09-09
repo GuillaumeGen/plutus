@@ -38,6 +38,8 @@ common lang
 
 executable doc-doctests
     import: lang
+    if(impl(ghcjs) || os(windows))
+      buildable: False
     hs-source-dirs: plutus/tutorials
     main-is: Main.hs
     ghc-options: -Wno-unused-imports
@@ -53,6 +55,7 @@ executable doc-doctests
       base >=4.9 && <5,
       template-haskell >=2.13.0.0,
       bytestring -any,
+      cardano-api -any,
       plutus-core -any,
       plutus-tx -any,
       plutus-ledger -any,

@@ -19,22 +19,21 @@ module Plutus.V1.Ledger.Tx(
     inputs,
     collateralInputs,
     outputs,
-    txOutRefs,
-    unspentOutputsTx,
     spentOutputs,
-    updateUtxo,
     updateUtxoCollateral,
     validValuesTx,
-    forgeScripts,
+    mintScripts,
     signatures,
     datumWitnesses,
+    redeemers,
     lookupSignature,
     lookupDatum,
-    addSignature,
-    forge,
+    lookupRedeemer,
+    mint,
     fee,
-    -- ** Hashing transactions
-    txId,
+    ScriptTag (..),
+    RedeemerPtr (..),
+    Redeemers,
     -- ** Stripped transactions
     TxStripped(..),
     strip,
@@ -48,10 +47,7 @@ module Plutus.V1.Ledger.Tx(
     outValue,
     txOutPubKey,
     txOutDatum,
-    pubKeyTxOut,
     pubKeyHashTxOut,
-    scriptTxOut,
-    scriptTxOut',
     txOutTxDatum,
     -- * Transaction inputs
     TxInType(..),
@@ -72,7 +68,6 @@ import qualified Codec.CBOR.Write          as Write
 import           Codec.Serialise.Class     (Serialise, encode)
 import           Control.DeepSeq           (NFData)
 import           Control.Lens
-import           Crypto.Hash               (Digest, SHA256, hash)
 import           Data.Aeson                (FromJSON, FromJSONKey (..), ToJSON, ToJSONKey (..))
 import qualified Data.ByteArray            as BA
 import           Data.Map                  (Map)
@@ -82,7 +77,7 @@ import qualified Data.Set                  as Set
 import           Data.Text.Prettyprint.Doc
 import           GHC.Generics              (Generic)
 
-import qualified PlutusTx                  as PlutusTx
+import qualified PlutusTx
 import qualified PlutusTx.Bool             as PlutusTx
 import qualified PlutusTx.Eq               as PlutusTx
 import           PlutusTx.Lattice
@@ -121,58 +116,45 @@ especially because we only need one direction (to binary).
 
 -- | A transaction, including witnesses for its inputs.
 data Tx = Tx {
-    txInputs       :: Set.Set TxIn,
+    txInputs      :: Set.Set TxIn,
     -- ^ The inputs to this transaction.
-    txCollateral   :: Set.Set TxIn,
+    txCollateral  :: Set.Set TxIn,
     -- ^ The collateral inputs to cover the fees in case validation of the transaction fails.
-    txOutputs      :: [TxOut],
+    txOutputs     :: [TxOut],
     -- ^ The outputs of this transaction, ordered so they can be referenced by index.
-    txForge        :: !Value,
-    -- ^ The 'Value' forged by this transaction.
-    txFee          :: !Value,
+    txMint        :: !Value,
+    -- ^ The 'Value' minted by this transaction.
+    txFee         :: !Value,
     -- ^ The fee for this transaction.
-    txValidRange   :: !SlotRange,
+    txValidRange  :: !SlotRange,
     -- ^ The 'SlotRange' during which this transaction may be validated.
-    txForgeScripts :: Set.Set MonetaryPolicy,
-    -- ^ The scripts that must be run to check forging conditions.
-    txSignatures   :: Map PubKey Signature,
+    txMintScripts :: Set.Set MintingPolicy,
+    -- ^ The scripts that must be run to check minting conditions.
+    txSignatures  :: Map PubKey Signature,
     -- ^ Signatures of this transaction.
-    txData         :: Map DatumHash Datum
+    txRedeemers   :: Redeemers,
+    -- ^ Redeemers of the minting scripts.
+    txData        :: Map DatumHash Datum
     -- ^ Datum objects recorded on this transaction.
     } deriving stock (Show, Eq, Generic)
       deriving anyclass (ToJSON, FromJSON, Serialise, NFData)
-
-instance Pretty Tx where
-    pretty t@Tx{txInputs, txCollateral, txOutputs, txForge, txFee, txValidRange, txSignatures, txForgeScripts, txData} =
-        let lines' =
-                [ hang 2 (vsep ("inputs:" : fmap pretty (Set.toList txInputs)))
-                , hang 2 (vsep ("collateral inputs:" : fmap pretty (Set.toList txCollateral)))
-                , hang 2 (vsep ("outputs:" : fmap pretty txOutputs))
-                , "forge:" <+> pretty txForge
-                , "fee:" <+> pretty txFee
-                , hang 2 (vsep ("mps:": fmap pretty (Set.toList txForgeScripts)))
-                , hang 2 (vsep ("signatures:": fmap (pretty . fst) (Map.toList txSignatures)))
-                , "validity range:" <+> viaShow txValidRange
-                , hang 2 (vsep ("data:": fmap (pretty . snd) (Map.toList txData) ))
-                ]
-            txid = txId t
-        in nest 2 $ vsep ["Tx" <+> pretty txid <> colon, braces (vsep lines')]
 
 instance Semigroup Tx where
     tx1 <> tx2 = Tx {
         txInputs = txInputs tx1 <> txInputs tx2,
         txCollateral = txCollateral tx1 <> txCollateral tx2,
         txOutputs = txOutputs tx1 <> txOutputs tx2,
-        txForge = txForge tx1 <> txForge tx2,
+        txMint = txMint tx1 <> txMint tx2,
         txFee = txFee tx1 <> txFee tx2,
         txValidRange = txValidRange tx1 /\ txValidRange tx2,
-        txForgeScripts = txForgeScripts tx1 <> txForgeScripts tx2,
+        txMintScripts = txMintScripts tx1 <> txMintScripts tx2,
         txSignatures = txSignatures tx1 <> txSignatures tx2,
+        txRedeemers = txRedeemers tx1 <> txRedeemers tx2,
         txData = txData tx1 <> txData tx2
         }
 
 instance Monoid Tx where
-    mempty = Tx mempty mempty mempty mempty mempty top mempty mempty mempty
+    mempty = Tx mempty mempty mempty mempty mempty top mempty mempty mempty mempty
 
 instance BA.ByteArrayAccess Tx where
     length        = BA.length . Write.toStrictByteString . encode
@@ -212,15 +194,20 @@ fee = lens g s where
     g = txFee
     s tx v = tx { txFee = v }
 
-forge :: Lens' Tx Value
-forge = lens g s where
-    g = txForge
-    s tx v = tx { txForge = v }
+mint :: Lens' Tx Value
+mint = lens g s where
+    g = txMint
+    s tx v = tx { txMint = v }
 
-forgeScripts :: Lens' Tx (Set.Set MonetaryPolicy)
-forgeScripts = lens g s where
-    g = txForgeScripts
-    s tx fs = tx { txForgeScripts = fs }
+mintScripts :: Lens' Tx (Set.Set MintingPolicy)
+mintScripts = lens g s where
+    g = txMintScripts
+    s tx fs = tx { txMintScripts = fs }
+
+redeemers :: Lens' Tx Redeemers
+redeemers = lens g s where
+    g = txRedeemers
+    s tx reds = tx { txRedeemers = reds }
 
 datumWitnesses :: Lens' Tx (Map DatumHash Datum)
 datumWitnesses = lens g s where
@@ -232,6 +219,9 @@ lookupSignature s Tx{txSignatures} = Map.lookup s txSignatures
 
 lookupDatum :: Tx -> DatumHash -> Maybe Datum
 lookupDatum Tx{txData} h = Map.lookup h txData
+
+lookupRedeemer :: Tx -> RedeemerPtr -> Maybe Redeemer
+lookupRedeemer tx p = Map.lookup p (txRedeemers tx)
 
 -- | Check that all values in a transaction are non-negative.
 validValuesTx :: Tx -> Bool
@@ -246,24 +236,29 @@ data TxStripped = TxStripped {
     -- ^ The inputs to this transaction, as transaction output references only.
     txStrippedOutputs :: [TxOut],
     -- ^ The outputs of this transation.
-    txStrippedForge   :: !Value,
-    -- ^ The 'Value' forged by this transaction.
+    txStrippedMint    :: !Value,
+    -- ^ The 'Value' minted by this transaction.
     txStrippedFee     :: !Value
     -- ^ The fee for this transaction.
     } deriving (Show, Eq, Generic, Serialise)
 
 strip :: Tx -> TxStripped
-strip Tx{..} = TxStripped i txOutputs txForge txFee where
+strip Tx{..} = TxStripped i txOutputs txMint txFee where
     i = Set.map txInRef txInputs
 
--- | Compute the id of a transaction.
-txId :: Tx -> TxId
--- Double hash of a transaction, excluding its witnesses.
-txId tx = TxId $ BA.convert h' where
-    h :: Digest SHA256
-    h = hash $ Write.toStrictByteString $ encode $ strip tx
-    h' :: Digest SHA256
-    h' = hash h
+-- | A tag indicating the type of script that we are pointing to.
+-- NOTE: Cert/Reward are not supported right now.
+data ScriptTag = Spend | Mint | Cert | Reward
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving anyclass (Serialise, ToJSON, FromJSON, NFData)
+
+-- | A redeemer pointer is a pair of a script type tag t and an index i, picking out the ith
+-- script of type t in the transaction.
+data RedeemerPtr = RedeemerPtr ScriptTag Integer
+    deriving stock (Show, Eq, Ord, Generic)
+    deriving anyclass (Serialise, ToJSON, FromJSON, ToJSONKey, FromJSONKey, NFData)
+
+type Redeemers = Map RedeemerPtr Redeemer
 
 -- | A reference to a transaction output. This is a
 -- pair of a transaction reference, and an index indicating which of the outputs
@@ -283,11 +278,6 @@ instance PlutusTx.Eq TxOutRef where
     l == r =
         txOutRefId l PlutusTx.== txOutRefId r
         PlutusTx.&& txOutRefIdx l PlutusTx.== txOutRefIdx r
-
--- | A list of a transaction's outputs paired with a 'TxOutRef's referring to them.
-txOutRefs :: Tx -> [(TxOut, TxOutRef)]
-txOutRefs t = mkOut <$> zip [0..] (txOutputs t) where
-    mkOut (i, o) = (o, TxOutRef (txId t) i)
 
 -- | The type of a transaction input.
 data TxInType =
@@ -364,6 +354,7 @@ instance Pretty TxOut where
                 hang 2 $ vsep ["-" <+> pretty txOutValue <+> "addressed to", pretty txOutAddress]
 
 instance PlutusTx.Eq TxOut where
+    {-# INLINABLE (==) #-}
     l == r =
         txOutAddress l PlutusTx.== txOutAddress r
         PlutusTx.&& txOutValue l PlutusTx.== txOutValue r
@@ -405,48 +396,18 @@ data TxOutTx = TxOutTx { txOutTxTx :: Tx, txOutTxOut :: TxOut }
 txOutTxDatum :: TxOutTx -> Maybe Datum
 txOutTxDatum (TxOutTx tx out) = txOutDatum out >>= lookupDatum tx
 
--- | Create a transaction output locked by a validator script hash
---   with the given data script attached.
-scriptTxOut' :: Value -> Address -> Datum -> TxOut
-scriptTxOut' v a ds = TxOut a v (Just (datumHash ds))
-
--- | Create a transaction output locked by a validator script and with the given data script attached.
-scriptTxOut :: Value -> Validator -> Datum -> TxOut
-scriptTxOut v vs = scriptTxOut' v (scriptAddress vs)
-
--- | Create a transaction output locked by a public key.
-pubKeyTxOut :: Value -> PubKey -> TxOut
-pubKeyTxOut v pk = TxOut (pubKeyAddress pk) v Nothing
-
 -- | Create a transaction output locked by a public key.
 pubKeyHashTxOut :: Value -> PubKeyHash -> TxOut
 pubKeyHashTxOut v pkh = TxOut (pubKeyHashAddress pkh) v Nothing
-
--- | The unspent outputs of a transaction.
-unspentOutputsTx :: Tx -> Map TxOutRef TxOut
-unspentOutputsTx t = Map.fromList $ fmap f $ zip [0..] $ txOutputs t where
-    f (idx, o) = (TxOutRef (txId t) idx, o)
 
 -- | The transaction output references consumed by a transaction.
 spentOutputs :: Tx -> Set.Set TxOutRef
 spentOutputs = Set.map txInRef . txInputs
 
--- | Update a map of unspent transaction outputs and signatures based on the inputs
---   and outputs of a transaction.
-updateUtxo :: Tx -> Map TxOutRef TxOut -> Map TxOutRef TxOut
-updateUtxo tx unspent = (unspent `Map.withoutKeys` spentOutputs tx) `Map.union` unspentOutputsTx tx
-
 -- | Update a map of unspent transaction outputs and signatures
 --   for a failed transaction using its collateral inputs.
 updateUtxoCollateral :: Tx -> Map TxOutRef TxOut -> Map TxOutRef TxOut
 updateUtxoCollateral tx unspent = unspent `Map.withoutKeys` (Set.map txInRef . txCollateral $ tx)
-
--- | Sign the transaction with a 'PrivateKey' and add the signature to the
---   transaction's list of signatures.
-addSignature :: PrivateKey -> Tx -> Tx
-addSignature privK tx = tx & signatures . at pubK ?~ sig where
-    sig = signTx (txId tx) privK
-    pubK = toPublicKey privK
 
 PlutusTx.makeIsDataIndexed ''TxOut [('TxOut,0)]
 PlutusTx.makeLift ''TxOut

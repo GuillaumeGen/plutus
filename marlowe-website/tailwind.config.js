@@ -4,15 +4,19 @@ module.exports = {
   purge: ["./src/**/*.njk", "./src/**/*.js"],
   darkMode: false, // or 'media' or 'class'
   theme: {
+    screens: {
+      sm: "640px",
+      md: "768px",
+      lg: "1024px",
+      xl: "1280px",
+      widest: "1440px",
+    },
     colors: {
       transparent: "transparent",
       current: "currentColor",
-      // FIXME: Marlowe run uses "#283346" but the website uses this, unify
-      black: "#273245",
-      // FIXME: Marlowe run uses "#eeeeee" but the website uses this, unify
-      lightgray: "#f6f9fc",
+      black: "#283346",
+      lightgray: "#eeeeee",
       gray: "#dfdfdf",
-      // FIXME: Marlowe run uses "#00a551" but the website uses this, unify
       green: "#00e39c",
       lightgreen: "#00e872",
       darkgray: "#b7b7b7",
@@ -21,6 +25,7 @@ module.exports = {
       purple: "#4700c3",
       lightpurple: "#8701fc",
       grayblue: "#f5f9fc",
+      darkblue: "#161F2F",
       red: "#e04b4c",
       // NOTE: These colors correspond to the mac button colors
       "mac-red": "#ec6a5e",
@@ -55,7 +60,6 @@ module.exports = {
       none: "none",
       sm: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)",
       DEFAULT: "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)",
-      "top-left": "-10px -10px 15px -3px rgba(0,0,0,0.2), 0 -5px 6px -2px rgba(0,0,0,0.04)",
       lg: "0 20px 25px -5px rgba(0,0,0,0.2), 0 10px 10px -5px rgba(0,0,0,0.04)",
       xl: "0 25px 50px -12px rgba(0,0,0,0.25)",
       deep: "0 2.5px 5px 0 rgba(0, 0, 0, 0.22)",
@@ -66,18 +70,19 @@ module.exports = {
         "5vw": "5vw",
         "10vw": "10vw",
       },
-      padding: {
-        /* This value was obtained from a "hack" to make the div occupy the height of
-           its background image
-           https://stackoverflow.com/questions/600743/how-to-get-div-height-to-auto-adjust-to-background-size
-           */
-        /* (img-height / img-width * container-width) */
-        /* (927 / 1440 * 100) */
-        "main-bg": "64.37%",
+      height: {
+        logo: "100px",
+        "logo-wider": "85px",
       },
-      backgroundImage: (theme) => ({
-        main: "url('/static/img/woman-using-cellphone.jpg')",
-      }),
+      padding: {
+        "16/9": "56.25%",
+      },
+      width: {
+        pinkM: "280px",
+      },
+      maxWidth: {
+        widest: "1440px",
+      },
       borderWidth: {
         3: "3px",
       },
@@ -102,7 +107,7 @@ module.exports = {
     backgroundImage: true,
     gradientColorStops: true,
     backgroundOpacity: false,
-    backgroundPosition: false,
+    backgroundPosition: true,
     backgroundRepeat: true,
     backgroundSize: true,
     borderCollapse: false,
@@ -124,7 +129,7 @@ module.exports = {
     alignSelf: true,
     justifyItems: false,
     justifyContent: true,
-    justifySelf: false,
+    justifySelf: true,
     flex: true,
     flexGrow: true,
     flexShrink: true,
@@ -141,7 +146,7 @@ module.exports = {
     maxWidth: true,
     minHeight: true,
     minWidth: true,
-    objectFit: false,
+    objectFit: true,
     objectPosition: false,
     opacity: true,
     outline: true,
@@ -172,7 +177,7 @@ module.exports = {
     fontSmoothing: false,
     fontVariantNumeric: false,
     letterSpacing: false,
-    userSelect: false,
+    userSelect: true,
     verticalAlign: false,
     visibility: true,
     whitespace: true,

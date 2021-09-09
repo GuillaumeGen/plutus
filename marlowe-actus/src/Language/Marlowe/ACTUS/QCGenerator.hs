@@ -58,7 +58,7 @@ cyclePeriodFreq = frequency [ (1, return P_D)
                             ]
 
 datecycle :: Gen Cycle
-datecycle = Cycle <$> sized (\n -> choose (0, maxDate `div` (toInteger n * secondsPerYear))) <*> cyclePeriodFreq <*> elements [ShortStub, LongStub]
+datecycle = Cycle <$> sized (\n -> choose (0, maxDate `div` (toInteger n * secondsPerYear))) <*> cyclePeriodFreq <*> elements [ShortStub, LongStub] <*> elements [True, False]
 
 contractTermsGen :: Gen ContractTerms
 contractTermsGen = do
@@ -77,15 +77,15 @@ contractTermsGen = do
     penaltyrate <- zeroOr percentage
     cpyrt <- zeroOr percentage
 
-    includeendday <- elements [True, False]
     eomc <- elements [EOMC_EOM, EOMC_SD]
     bdc <- elements [BDC_NULL, BDC_SCF, BDC_SCMF, BDC_CSF, BDC_CSMF, BDC_SCP, BDC_SCMP, BDC_CSP, BDC_CSMP]
+    calendar <- elements [CLDR_MF, CLDR_NC]
     dcc <- elements [DCC_A_AISDA, DCC_A_360, DCC_A_365, DCC_E30_360ISDA, DCC_E30_360, DCC_B_252]
-    pref <- elements [PREF_Y, PREF_N]
+    ppef <- elements [PPEF_N, PPEF_A, PPEF_M]
     cntrl <- elements [CR_BUY, CR_SEL]
 
     scef <- elements [SE_000, SE_0N0, SE_00M, SE_0NM, SE_I00, SE_IN0, SE_I0M, SE_INM]
-    scixsd <- oneOr scalingFactor
+    sccdd <- oneOr scalingFactor
     scied <- oneOr scalingFactor
 
     rrsp <- zeroOr percentage
@@ -131,50 +131,49 @@ contractTermsGen = do
 
     return ContractTerms {
         contractId     = "0"
-        , contractType = Just contracttype
-        , ct_IED       = ied
+        , contractType = contracttype
+        , ct_IED       = Just ied
         , ct_SD        = sd
         , ct_MD        = maturityDate
         , ct_TD        = terminationDate
         , ct_PRNXT     = nextPrincipalRedemption
         , ct_PRD       = purchaseDate
         , ct_CNTRL     = cntrl
-        , ct_PDIED     = pdied
+        , ct_PDIED     = Just pdied
         , ct_NT        = notional
         , ct_PPRD      = priceAtPurchaseDate
         , ct_PTD       = priceAtTerminationDate
-        , ct_DCC       = dcc
-        , ct_PREF      = pref
-        , ct_PRF       = CS_PF
+        , ct_DCC       = Just dcc
+        , ct_PPEF      = Just ppef
+        , ct_PRF       = Just PRF_PF
         , scfg         = ScheduleConfig {
-            calendar = [] -- TODO
-            , includeEndDay = includeendday
-            , eomc = eomc
-            , bdc = bdc
+            calendar = Just calendar
+            , eomc = Just eomc
+            , bdc = Just bdc
         }
         -- Penalties
-        , ct_PYRT      = penaltyrate
-        , ct_PYTP      = penaltytype
+        , ct_PYRT      = Just penaltyrate
+        , ct_PYTP      = Just penaltytype
         , ct_cPYRT     = cpyrt
         -- Optionality
         , ct_OPCL      = optionalityCycle
         , ct_OPANX     = optionalityAnchor
         -- Scaling:
-        , ct_SCIED     = scied
-        , ct_SCEF      = scef
+        , ct_SCIED     = Just scied
+        , ct_SCEF      = Just scef
         , ct_SCCL      = scalingCycle
         , ct_SCANX     = scalingAnchor
-        , ct_SCIXSD    = scixsd
+        , ct_SCCDD     = Just sccdd
         -- Rate Reset
         , ct_RRCL      = rateResetCycle
         , ct_RRANX     = rateResetAnchor
         , ct_RRNXT     = nextRateReset
-        , ct_RRSP      = rrsp
-        , ct_RRMLT     = rrmlt
-        , ct_RRPF      = rrpf
-        , ct_RRPC      = rrpc
-        , ct_RRLC      = rrlc
-        , ct_RRLF      = rrlf
+        , ct_RRSP      = Just rrsp
+        , ct_RRMLT     = Just rrmlt
+        , ct_RRPF      = Just rrpf
+        , ct_RRPC      = Just rrpc
+        , ct_RRLC      = Just rrlc
+        , ct_RRLF      = Just rrlf
         -- Interest
         , ct_IPCED     = interestCapitalisationDate
         , ct_IPCL      = interestPaymentCycle
@@ -191,10 +190,15 @@ contractTermsGen = do
         , ct_FECL      = feeCycle
         , ct_FEANX     = feeAnchor
         , ct_FEAC      = feeAccrued
-        , ct_FEB       = feebasis
-        , ct_FER       = feerate
+        , ct_FEB       = Just feebasis
+        , ct_FER       = Just feerate
+
+        , ct_CURS      = Nothing
+        , ct_SCMO      = Nothing
+        , ct_RRMO      = Nothing
+
         -- enable settlement currency
-        , ct_CURS      = False
+        , enableSettlement      = False
         , constraints  = Nothing
         , collateralAmount = 0
     }
@@ -205,7 +209,7 @@ riskAtTGen = RiskFactors <$> percentage <*> percentage <*> percentage <*> smalla
 
 riskFactorsGen :: ContractTerms -> Gen (M.Map Day RiskFactors)
 riskFactorsGen ct = do
-    let days = cashCalculationDay <$> genProjectedCashflows ct
+    let days = cashCalculationDay <$> genProjectedCashflows (M.empty) ct
     rf <- vectorOf (L.length days) riskAtTGen
     return $ M.fromList $ L.zip days rf
 

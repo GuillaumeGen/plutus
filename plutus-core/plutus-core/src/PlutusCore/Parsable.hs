@@ -18,6 +18,8 @@ where
 
 import           PlutusPrelude
 
+import           PlutusCore.Data
+
 import           Data.Bits       (shiftL, (.|.))
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS (pack)
@@ -105,6 +107,7 @@ deriving via AsRead Bool    instance Parsable Bool
 deriving via AsRead Char    instance Parsable Char
 deriving via AsRead Integer instance Parsable Integer
 deriving via AsRead ()      instance Parsable ()
+deriving via AsRead T.Text instance Parsable T.Text
 
 instance Parsable (a, b) where
     parse = error "Parsing for tuples is not implemented"
@@ -112,6 +115,8 @@ instance Parsable (a, b) where
 instance Parsable ByteString where
     parse = parseByteStringConstant
 
+instance Parsable Data where
+    parse = error "Implement me"
 
 
 --- Parsing bytestrings ---

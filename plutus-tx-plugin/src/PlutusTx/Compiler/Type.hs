@@ -81,8 +81,9 @@ compileType t = withContextM 2 (sdToTxt $ "Compiling type:" GHC.<+> GHC.ppr t) $
     let top = NE.head stack
     case t of
         -- in scope type name
-        (GHC.getTyVar_maybe -> Just (lookupTyName top . GHC.getName -> Just (PIR.TyVarDecl _ name _))) -> pure $ PIR.TyVar () name
-        (GHC.getTyVar_maybe -> Just v) -> throwSd FreeVariableError $ "Type variable:" GHC.<+> GHC.ppr v
+        (GHC.getTyVar_maybe -> Just v) -> case lookupTyName top (GHC.getName v) of
+            Just (PIR.TyVarDecl _ name _) -> pure $ PIR.TyVar () name
+            Nothing                       -> throwSd FreeVariableError $ "Type variable:" GHC.<+> GHC.ppr v
         (GHC.splitFunTy_maybe -> Just (i, o)) -> PIR.TyFun () <$> compileType i <*> compileType o
         (GHC.splitTyConApp_maybe -> Just (tc, ts)) -> PIR.mkIterTyApp () <$> compileTyCon tc <*> traverse compileType ts
         (GHC.splitAppTy_maybe -> Just (t1, t2)) -> PIR.TyApp() <$> compileType t1 <*> compileType t2
@@ -112,8 +113,6 @@ compileTyCon :: forall uni fun m. Compiling uni fun m => GHC.TyCon -> m (PIRType
 compileTyCon tc
     | tc == GHC.intTyCon = throwPlain $ UnsupportedError "Int: use Integer instead"
     | tc == GHC.intPrimTyCon = throwPlain $ UnsupportedError "Int#: unboxed integers are not supported"
-    -- See Note [Addr#]
-    | tc == GHC.addrPrimTyCon = compileType GHC.stringTy
     -- this is Void#
     | tc == GHC.voidPrimTyCon = errorTy
     | otherwise = do
@@ -183,6 +182,10 @@ The check we do is:
 
 This is somewhat wasteful, since we may compile the expression twice, but it's difficult to avoid, and
 it's hard to tell if a GHC core expression will be a PLC value or not. Easiest to just try it.
+
+One further optimization: we don't do compile a case lazily if it has one alternative. In this case
+we're going to evaluate that alternative unconditionally, *and* we're going to evaluate the scrutinee
+first, so the effects will also be in the right order.
 -}
 
 {- Note [Ordering of constructors]

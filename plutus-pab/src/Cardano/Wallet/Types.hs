@@ -22,6 +22,7 @@ module Cardano.Wallet.Types (
     , multiWallet
      -- * wallet configuration
     , WalletConfig (..)
+    , defaultWalletConfig
 
      -- * wallet log messages
     , WalletMsg (..)
@@ -45,6 +46,7 @@ import           Control.Monad.Freer.Extras.Log     (LogMsg)
 import           Control.Monad.Freer.State          (State)
 import           Control.Monad.Freer.TH             (makeEffect)
 import           Data.Aeson                         (FromJSON, ToJSON)
+import           Data.Default                       (Default, def)
 import           Data.Map.Strict                    (Map)
 import           Data.Text                          (Text)
 import           Data.Text.Prettyprint.Doc          (Pretty (..), (<+>))
@@ -52,11 +54,12 @@ import           GHC.Generics                       (Generic)
 import           Ledger                             (PubKey, PubKeyHash)
 import           Plutus.PAB.Arbitrary               ()
 import           Servant                            (ServerError (..))
-import           Servant.Client                     (BaseUrl, ClientError)
+import           Servant.Client                     (BaseUrl (..), ClientError, Scheme (..))
 import           Servant.Client.Internal.HttpClient (ClientEnv)
 import           Wallet.Effects                     (ChainIndexEffect, NodeClientEffect, WalletEffect)
 import           Wallet.Emulator.Error              (WalletAPIError)
-import           Wallet.Emulator.Wallet             (Wallet, WalletState)
+import           Wallet.Emulator.LogMessages        (TxBalanceMsg)
+import           Wallet.Emulator.Wallet             (Wallet (..), WalletState)
 
 
 -- | Information about an emulated wallet.
@@ -106,8 +109,20 @@ data WalletConfig =
     deriving (Show, Eq, Generic)
     deriving anyclass (FromJSON, ToJSON)
 
+defaultWalletConfig :: WalletConfig
+defaultWalletConfig =
+  WalletConfig
+    -- See Note [pab-ports] in "test/full/Plutus/PAB/CliSpec.hs".
+    { baseUrl = WalletUrl $ BaseUrl Http "127.0.0.1" 9081 ""
+    , wallet  = Wallet 1
+    }
+
+instance Default WalletConfig where
+  def = defaultWalletConfig
+
 data WalletMsg = StartingWallet Port
                | ChainClientMsg Text
+               | Balancing TxBalanceMsg
     deriving stock (Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
@@ -115,8 +130,10 @@ instance Pretty WalletMsg where
     pretty = \case
         StartingWallet port -> "Starting wallet server on port " <+> pretty port
         ChainClientMsg m    -> "Chain Client: " <+> pretty m
+        Balancing m         -> pretty m
 
 instance ToObject WalletMsg where
     toObject _ = \case
         StartingWallet port -> mkObjectStr "Starting wallet server" (Tagged @"port" port)
         ChainClientMsg m    -> mkObjectStr "Chain Client: " (Tagged @"msg" m)
+        Balancing m         -> mkObjectStr "Balancing" (Tagged @"msg" m)

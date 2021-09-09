@@ -78,17 +78,16 @@ data LockArgs =
     deriving anyclass (ToJSON, FromJSON, ToSchema)
 
 type SplitSchema =
-    BlockchainActions
-        .\/ Endpoint "lock" LockArgs
+        Endpoint "lock" LockArgs
         .\/ Endpoint "unlock" LockArgs
 
 -- BLOCK5
 
-lock :: Contract () SplitSchema T.Text LockArgs
-lock = endpoint @"lock"
+lock :: Promise () SplitSchema T.Text ()
+lock = endpoint @"lock" (lockFunds . mkSplitData)
 
-unlock :: Contract () SplitSchema T.Text LockArgs
-unlock = endpoint @"unlock"
+unlock :: Promise () SplitSchema T.Text ()
+unlock = endpoint @"unlock" (unlockFunds . mkSplitData)
 
 -- BLOCK6
 
@@ -129,6 +128,6 @@ unlockFunds SplitData{recipient1, recipient2, amount} = do
 endpoints :: Contract () SplitSchema T.Text ()
 -- BLOCK10
 
-endpoints = (lock >>= lockFunds . mkSplitData) `select` (unlock >>= unlockFunds . mkSplitData)
+endpoints = selectList [lock, unlock]
 
 -- BLOCK11

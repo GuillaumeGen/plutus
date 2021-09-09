@@ -42,7 +42,7 @@ If you find yourself building GHC, STOP and fix the cache.
 
 === User documentation
 
-The main documentation is located https://docs.cardano.org/projects/plutus/en/latest/[here].
+The main documentation is located https://plutus.readthedocs.io/en/latest/[here].
 
 === Talks
 
@@ -128,6 +128,11 @@ See <<nix-build-attributes>> to find out what other attributes you can build.
 The Haskell packages can be built directly with `cabal`.
 We do this during development (see <<how-to-develop>>).
 The best way is to do this is inside a `nix-shell`.
+
+[NOTE]
+====
+For fresh development setups, you also need to run `cabal update`.
+====
 
 Run `cabal build plutus-core` from the root to build the Plutus Core library.
 

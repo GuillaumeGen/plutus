@@ -3,9 +3,12 @@
 module Spec.Escrow(tests, redeemTrace, redeem2Trace, refundTrace) where
 
 import           Control.Monad           (void)
+import           Data.Default            (Default (def))
 
 import           Ledger                  (pubKeyHash)
 import qualified Ledger.Ada              as Ada
+import           Ledger.Time             (POSIXTime)
+import qualified Ledger.TimeSlot         as TimeSlot
 import qualified Ledger.Typed.Scripts    as Scripts
 import           Plutus.Contract
 import           Plutus.Contract.Test
@@ -18,7 +21,7 @@ import qualified Test.Tasty.HUnit        as HUnit
 
 tests :: TestTree
 tests = testGroup "escrow"
-    [ let con = void $ payEp @() @EscrowSchema @EscrowError escrowParams in
+    [ let con = void $ payEp @() @EscrowSchema @EscrowError (escrowParams startTime) in
       checkPredicate "can pay"
         ( assertDone con (Trace.walletInstanceTag w1) (const True) "escrow pay not done"
         .&&. walletFundsChange w1 (Ada.lovelaceValueOf (-10))
@@ -28,7 +31,11 @@ tests = testGroup "escrow"
           Trace.callEndpoint @"pay-escrow" hdl (Ada.lovelaceValueOf 10)
           void $ Trace.waitNSlots 1
 
-    , let con = void $ selectEither (payEp @() @EscrowSchema @EscrowError escrowParams) (redeemEp escrowParams) in
+    , let con = void $ selectEither (payEp @()
+                                           @EscrowSchema
+                                           @EscrowError
+                                           (escrowParams startTime))
+                                    (redeemEp (escrowParams startTime)) in
       checkPredicate "can redeem"
         ( assertDone con (Trace.walletInstanceTag w3) (const True) "escrow redeem not done"
           .&&. walletFundsChange w1 (Ada.lovelaceValueOf (-10))
@@ -62,24 +69,34 @@ tests = testGroup "escrow"
           )
           redeem2Trace
 
-    , let con = void $ payEp @()  @EscrowSchema @EscrowError escrowParams >> refundEp escrowParams in
+    , let con = void (payEp @()
+                            @EscrowSchema
+                            @EscrowError
+                            (escrowParams startTime))
+             <> void (refundEp (escrowParams startTime)) in
       checkPredicate "can refund"
         ( walletFundsChange w1 mempty
           .&&. assertDone con (Trace.walletInstanceTag w1) (const True) "refund should succeed")
         refundTrace
 
-    , HUnit.testCaseSteps "script size is reasonable" $ \step -> reasonable' step (Scripts.validatorScript $ typedValidator escrowParams) 32000
+    , HUnit.testCaseSteps "script size is reasonable"
+        $ \step -> reasonable' step
+                               (Scripts.validatorScript $ typedValidator (escrowParams startTime))
+                               32000
     ]
+
+    where
+        startTime = TimeSlot.scSlotZeroTime def
 
 w1, w2, w3 :: Wallet
 w1 = Wallet 1
 w2 = Wallet 2
 w3 = Wallet 3
 
-escrowParams :: EscrowParams d
-escrowParams =
+escrowParams :: POSIXTime -> EscrowParams d
+escrowParams startTime =
   EscrowParams
-    { escrowDeadline = 100
+    { escrowDeadline = startTime + 100000
     , escrowTargets  =
         [ payToPubKeyTarget (pubKeyHash $ walletPubKey w1) (Ada.lovelaceValueOf 10)
         , payToPubKeyTarget (pubKeyHash $ walletPubKey w2) (Ada.lovelaceValueOf 20)
@@ -90,7 +107,12 @@ escrowParams =
 --   cashes out.
 redeemTrace :: Trace.EmulatorTrace ()
 redeemTrace = do
-    let con = void $ selectEither (payEp @() @EscrowSchema @EscrowError escrowParams) (redeemEp escrowParams)
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
+    let con = void $ selectEither (payEp @()
+                                         @EscrowSchema
+                                         @EscrowError
+                                         (escrowParams startTime))
+                                  (redeemEp (escrowParams startTime))
     hdl1 <- Trace.activateContractWallet w1 con
     hdl2 <- Trace.activateContractWallet w2 con
     hdl3 <- Trace.activateContractWallet w3 con
@@ -104,7 +126,13 @@ redeemTrace = do
 -- | Wallets 1-3 pay into an escrow contract, wallet 1 redeems.
 redeem2Trace :: Trace.EmulatorTrace ()
 redeem2Trace = do
-    let con = (void $ both (payEp @() @EscrowSchema @EscrowError escrowParams) (redeemEp escrowParams))
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
+    let con = void $ both (payEp @()
+                                 @EscrowSchema
+                                 @EscrowError
+                                 (escrowParams startTime)
+                          )
+                          (redeemEp (escrowParams startTime))
     hdl1 <- Trace.activateContractWallet w1 con
     hdl2 <- Trace.activateContractWallet w2 con
     hdl3 <- Trace.activateContractWallet w3 con
@@ -119,7 +147,12 @@ redeem2Trace = do
 --   amount isn't claimed.
 refundTrace :: Trace.EmulatorTrace ()
 refundTrace = do
-    let con = void $ payEp @() @EscrowSchema @EscrowError escrowParams >> refundEp escrowParams
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
+    let con = void (payEp @()
+                          @EscrowSchema
+                          @EscrowError
+                          (escrowParams startTime))
+           <> void (refundEp (escrowParams startTime))
     hdl1 <- Trace.activateContractWallet w1 con
     Trace.callEndpoint @"pay-escrow" hdl1 (Ada.lovelaceValueOf 20)
     _ <- Trace.waitNSlots 100

@@ -4,7 +4,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeApplications    #-}
+
 {-# OPTIONS_GHC -fno-warn-incomplete-uni-patterns -fno-warn-unused-do-bind #-}
+
 module Spec.Crowdfunding(tests) where
 
 import qualified Control.Foldl                         as L
@@ -24,12 +26,14 @@ import qualified Test.Tasty.HUnit                      as HUnit
 
 import qualified Ledger.Ada                            as Ada
 import           Ledger.Slot                           (Slot (..))
+import           Ledger.Time                           (POSIXTime)
+import qualified Ledger.TimeSlot                       as TimeSlot
 import           Plutus.Contract                       hiding (runError)
 import           Plutus.Contract.Test
 import           Plutus.Contracts.Crowdfunding
 import           Plutus.Trace.Emulator                 (ContractHandle (..), EmulatorTrace)
 import qualified Plutus.Trace.Emulator                 as Trace
-import qualified PlutusTx                              as PlutusTx
+import qualified PlutusTx
 import qualified PlutusTx.Prelude                      as PlutusTx
 import qualified Streaming.Prelude                     as S
 import qualified Wallet.Emulator.Folds                 as Folds
@@ -41,16 +45,18 @@ w2 = Wallet 2
 w3 = Wallet 3
 w4 = Wallet 4
 
-theContract :: Contract () CrowdfundingSchema ContractError ()
-theContract = crowdfunding theCampaign
+theContract :: POSIXTime -> Contract () CrowdfundingSchema ContractError ()
+theContract startTime = crowdfunding $ theCampaign startTime
 
 tests :: TestTree
 tests = testGroup "crowdfunding"
     [ checkPredicate "Expose 'contribute' and 'scheduleCollection' endpoints"
-        (endpointAvailable @"contribute" theContract (Trace.walletInstanceTag w1)
-        .&&. endpointAvailable @"schedule collection" theContract (Trace.walletInstanceTag w1)
+        (endpointAvailable @"contribute" (theContract startTime) (Trace.walletInstanceTag w1)
+        .&&. endpointAvailable @"schedule collection" (theContract startTime) (Trace.walletInstanceTag w1)
         )
-        $ void (Trace.activateContractWallet w1 theContract)
+        $ do
+            slotCfg <- Trace.getSlotConfig
+            void (Trace.activateContractWallet w1 $ theContract $ TimeSlot.scSlotZeroTime slotCfg)
 
     , checkPredicateOptions (defaultCheckOptions & maxSlot .~ 20) "make contribution"
         (walletFundsChange w1 (Ada.lovelaceValueOf (-100)))
@@ -59,7 +65,7 @@ tests = testGroup "crowdfunding"
 
     , checkPredicate "make contributions and collect"
         (walletFundsChange w1 (Ada.lovelaceValueOf 225))
-        $ successfulCampaign
+        successfulCampaign
 
     , checkPredicate "cannot collect money too late"
         (walletFundsChange w1 PlutusTx.zero
@@ -103,8 +109,8 @@ tests = testGroup "crowdfunding"
 
     , goldenPir "test/Spec/crowdfunding.pir" $$(PlutusTx.compile [|| mkValidator ||])
     ,   let
-            deadline = 10
-            collectionDeadline = 15
+            deadline = 10000
+            collectionDeadline = 15000
             owner = w1
             cmp = mkCampaign deadline collectionDeadline owner
         in HUnit.testCaseSteps "script size is reasonable" $ \step -> reasonable' step (contributionScript cmp) 30000
@@ -119,12 +125,15 @@ tests = testGroup "crowdfunding"
         "test/Spec/crowdfundingEmulatorTestOutput.txt"
         (pure $ renderEmulatorLog successfulCampaign)
 
-    , let con :: Contract () BlockchainActions ContractError () = throwError "something went wrong" in
+    , let con :: Contract () EmptySchema ContractError () = throwError "something went wrong" in
         goldenVsString
         "renders an error sensibly"
         "test/Spec/contractError.txt"
         (pure $ renderWalletLog (void $ Trace.activateContractWallet w1 con))
     ]
+
+    where
+        startTime = TimeSlot.scSlotZeroTime def
 
 renderWalletLog :: EmulatorTrace () -> ByteString
 renderWalletLog trace =

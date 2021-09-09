@@ -11,16 +11,21 @@
 {-# LANGUAGE UndecidableInstances     #-}
 
 module PlutusCore.Core.Type
-    ( Kind(..)
-    , Type(..)
-    , Term(..)
-    , Version(..)
-    , Program(..)
+    ( Kind (..)
+    , Type (..)
+    , Term (..)
+    , Version (..)
+    , Program (..)
     , UniOf
-    , Normalized(..)
+    , Normalized (..)
+    , TyVarDecl (..)
+    , VarDecl (..)
+    , TyDecl (..)
+    , tyDeclVar
     , HasUniques
     , KnownKind (..)
     , ToKind (..)
+    , Binder (..)
     , kindOf
     , defaultVersion
     -- * Helper functions
@@ -92,6 +97,38 @@ data Program tyname name uni fun ann = Program ann (Version ann) (Term tyname na
 type family UniOf a :: GHC.Type -> GHC.Type
 
 type instance UniOf (Term tyname name uni fun ann) = uni
+
+-- | A "type variable declaration", i.e. a name and a kind for a type variable.
+data TyVarDecl tyname ann = TyVarDecl
+    { tyVarDeclAnn  :: ann
+    , tyVarDeclName :: tyname
+    , tyVarDeclKind :: Kind ann
+    } deriving (Functor, Show, Generic)
+
+-- | A "variable declaration", i.e. a name and a type for a variable.
+data VarDecl tyname name uni fun ann = VarDecl
+    { varDeclAnn  :: ann
+    , varDeclName :: name
+    , varDeclType :: Type tyname uni ann
+    } deriving (Functor, Show, Generic)
+
+-- | A "type declaration", i.e. a kind for a type.
+data TyDecl tyname uni ann = TyDecl
+    { tyDeclAnn  :: ann
+    , tyDeclType :: Type tyname uni ann
+    , tyDeclKind :: Kind ann
+    } deriving (Functor, Show, Generic)
+
+tyDeclVar :: TyVarDecl tyname ann -> TyDecl tyname uni ann
+tyDeclVar (TyVarDecl ann name kind) = TyDecl ann (TyVar ann name) kind
+
+instance HasUnique tyname TypeUnique => HasUnique (TyVarDecl tyname ann) TypeUnique where
+    unique f (TyVarDecl ann tyname kind) =
+        unique f tyname <&> \tyname' -> TyVarDecl ann tyname' kind
+
+instance HasUnique name TermUnique => HasUnique (VarDecl tyname name uni fun ann) TermUnique where
+    unique f (VarDecl ann name ty) =
+        unique f name <&> \name' -> VarDecl ann name' ty
 
 newtype Normalized a = Normalized
     { unNormalized :: a
@@ -174,3 +211,9 @@ mapFun f = go where
     go (Var ann name)             = Var ann name
     go (Constant ann con)         = Constant ann con
     go (Builtin ann fun)          = Builtin ann (f fun)
+
+-- | This is a wrapper to mark the place where the binder is introduced (i.e. LamAbs/TyAbs)
+-- and not where it is actually used (TyVar/Var..).
+-- This marking allows us to skip the (de)serialization of binders at LamAbs/TyAbs positions
+-- iff 'name' is DeBruijn-encoded (level or index). See for example the instance of  'UntypedPlutusCore.Core.Instance.Flat'
+newtype Binder name = Binder { unBinder :: name }

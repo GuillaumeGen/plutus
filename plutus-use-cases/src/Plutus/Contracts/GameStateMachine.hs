@@ -26,7 +26,7 @@ module Plutus.Contracts.GameStateMachine(
     , typedValidator
     , GameToken
     , mkValidator
-    , monetaryPolicy
+    , mintingPolicy
     , LockArgs(..)
     , GuessArgs(..)
     , GameStateMachineSchema, GameError
@@ -34,6 +34,7 @@ module Plutus.Contracts.GameStateMachine(
     , saveFlat
     ) where
 
+import           Control.Lens                 (makeClassyPrisms)
 import           Control.Monad                (void)
 import           Data.Aeson                   (FromJSON, ToJSON)
 import           GHC.Generics                 (Generic)
@@ -42,7 +43,7 @@ import           Ledger.Constraints           (TxConstraints)
 import qualified Ledger.Constraints           as Constraints
 import qualified Ledger.Typed.Scripts         as Scripts
 import qualified Ledger.Value                 as V
-import qualified PlutusTx                     as PlutusTx
+import qualified PlutusTx
 import           PlutusTx.Prelude             hiding (Applicative (..), check)
 import           Schema                       (ToArgument, ToSchema)
 
@@ -70,15 +71,15 @@ import           PlutusTx.Code
 
 
 
-newtype HashedString = HashedString ByteString
-    deriving newtype (PlutusTx.IsData, Eq)
+newtype HashedString = HashedString BuiltinByteString
+    deriving newtype (Eq, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
     deriving stock (Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
 PlutusTx.makeLift ''HashedString
 
-newtype ClearString = ClearString ByteString
-    deriving newtype (PlutusTx.IsData, Eq)
+newtype ClearString = ClearString BuiltinByteString
+    deriving newtype (Eq, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
     deriving stock (Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
@@ -106,12 +107,10 @@ data GuessArgs =
         } deriving stock (Haskell.Show, Generic)
           deriving anyclass (ToJSON, FromJSON, ToSchema, ToArgument)
 
--- | The schema of the contract. It consists of the usual
---   'BlockchainActions' plus the two endpoints @"lock"@
+-- | The schema of the contract. It consists of the two endpoints @"lock"@
 --   and @"guess"@ with their respective argument types.
 type GameStateMachineSchema =
-    BlockchainActions
-        .\/ Endpoint "lock" LockArgs
+        Endpoint "lock" LockArgs
         .\/ Endpoint "guess" GuessArgs
 
 data GameError =
@@ -120,22 +119,30 @@ data GameError =
     deriving stock (Haskell.Show, Generic)
     deriving anyclass (ToJSON, FromJSON)
 
+makeClassyPrisms ''GameError
+
+instance AsContractError GameError where
+    _ContractError = _GameContractError . _ContractError
+
+instance SM.AsSMContractError GameError where
+    _SMContractError = _GameSMError . SM._SMContractError
+
 -- | Top-level contract, exposing both endpoints.
 contract :: Contract () GameStateMachineSchema GameError ()
-contract = (lock `select` guess) >> contract
+contract = selectList [lock, guess] >> contract
 
 -- | The token that represents the right to make a guess
 newtype GameToken = GameToken { unGameToken :: Value }
     deriving newtype (Eq, Haskell.Show)
 
-token :: MonetaryPolicyHash -> TokenName -> Value
+token :: MintingPolicyHash -> TokenName -> Value
 token mps tn = V.singleton (V.mpsSymbol mps) tn 1
 
 -- | State of the guessing game
 data GameState =
-    Initialised MonetaryPolicyHash TokenName HashedString
-    -- ^ Initial state. In this state only the 'ForgeTokens' action is allowed.
-    | Locked MonetaryPolicyHash TokenName HashedString
+    Initialised MintingPolicyHash TokenName HashedString
+    -- ^ Initial state. In this state only the 'MintTokens' action is allowed.
+    | Locked MintingPolicyHash TokenName HashedString
     -- ^ Funds have been locked. In this state only the 'Guess' action is
     --   allowed.
     deriving stock (Haskell.Show, Generic)
@@ -154,8 +161,8 @@ checkGuess (HashedString actual) (ClearString gss) = actual == (sha2_256 gss)
 
 -- | Inputs (actions)
 data GameInput =
-      ForgeToken
-    -- ^ Forge the "guess" token
+      MintToken
+    -- ^ Mint the "guess" token
     | Guess ClearString HashedString Value
     -- ^ Make a guess, extract the funds, and lock the remaining funds using a
     --   new secret word.
@@ -165,8 +172,8 @@ data GameInput =
 {-# INLINABLE transition #-}
 transition :: State GameState -> GameInput -> Maybe (TxConstraints Void Void, State GameState)
 transition State{stateData=oldData, stateValue=oldValue} input = case (oldData, input) of
-    (Initialised mph tn s, ForgeToken) ->
-        let constraints = Constraints.mustForgeCurrency mph tn 1 in
+    (Initialised mph tn s, MintToken) ->
+        let constraints = Constraints.mustMintCurrency mph tn 1 in
         Just ( constraints
              , State
                 { stateData = Locked mph tn s
@@ -175,7 +182,7 @@ transition State{stateData=oldData, stateValue=oldValue} input = case (oldData, 
              )
     (Locked mph tn currentSecret, Guess theGuess nextSecret takenOut)
         | checkGuess currentSecret theGuess ->
-        let constraints = Constraints.mustSpendAtLeast (token mph tn) <> Constraints.mustForgeCurrency mph tn 0 in
+        let constraints = Constraints.mustSpendAtLeast (token mph tn) <> Constraints.mustMintCurrency mph tn 0 in
         Just ( constraints
              , State
                 { stateData = Locked mph tn nextSecret
@@ -202,32 +209,29 @@ typedValidator = Scripts.mkTypedValidator @GameStateMachine
     where
         wrap = Scripts.wrapValidator
 
-monetaryPolicy :: Scripts.MonetaryPolicy
-monetaryPolicy = Scripts.forwardingMonetaryPolicy typedValidator
+mintingPolicy :: Scripts.MintingPolicy
+mintingPolicy = Scripts.forwardingMintingPolicy typedValidator
 
 client :: SM.StateMachineClient GameState GameInput
 client = SM.mkStateMachineClient $ SM.StateMachineInstance machine typedValidator
 
 -- | The @"guess"@ endpoint.
-guess :: Contract () GameStateMachineSchema GameError ()
-guess = do
-    GuessArgs{guessArgsOldSecret,guessArgsNewSecret, guessArgsValueTakenOut} <- mapError GameContractError $ endpoint @"guess"
+guess :: Promise () GameStateMachineSchema GameError ()
+guess = endpoint @"guess" $ \GuessArgs{guessArgsOldSecret,guessArgsNewSecret, guessArgsValueTakenOut} -> do
 
-    let guessedSecret = ClearString (C.pack guessArgsOldSecret)
-        newSecret     = HashedString (sha2_256 (C.pack guessArgsNewSecret))
+    let guessedSecret = ClearString (toBuiltin (C.pack guessArgsOldSecret))
+        newSecret     = HashedString (sha2_256 (toBuiltin (C.pack guessArgsNewSecret)))
 
     void
-        $ mapError GameSMError
         $ SM.runStep client
             (Guess guessedSecret newSecret guessArgsValueTakenOut)
 
-lock :: Contract () GameStateMachineSchema GameError ()
-lock = do
-    LockArgs{lockArgsSecret, lockArgsValue} <- mapError GameContractError $ endpoint @"lock"
-    let secret = HashedString (sha2_256 (C.pack lockArgsSecret))
-        sym = Scripts.forwardingMonetaryPolicyHash typedValidator
-    _ <- mapError GameSMError $ SM.runInitialise client (Initialised sym "guess" secret) lockArgsValue
-    void $ mapError GameSMError $ SM.runStep client ForgeToken
+lock :: Promise () GameStateMachineSchema GameError ()
+lock = endpoint @"lock" $ \LockArgs{lockArgsSecret, lockArgsValue} -> do
+    let secret = HashedString (sha2_256 (toBuiltin (C.pack lockArgsSecret)))
+        sym = Scripts.forwardingMintingPolicyHash typedValidator
+    _ <- SM.runInitialise client (Initialised sym "guess" secret) lockArgsValue
+    void $ SM.runStep client MintToken
 
 PlutusTx.unstableMakeIsData ''GameState
 PlutusTx.makeLift ''GameState

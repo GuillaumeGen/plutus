@@ -14,6 +14,9 @@
 {-# LANGUAGE TypeOperators             #-}
 {-# LANGUAGE UndecidableInstances      #-}
 
+-- DO NOT enable @StrictData@ in this file as it makes the evaluator slower (even with @~@ put in
+-- 'BuiltinRuntime' in the places where it's necessary to have laziness for evaluators to work).
+
 module PlutusCore.Constant.Meaning where
 
 import           PlutusPrelude
@@ -22,6 +25,7 @@ import           PlutusCore.Constant.Dynamic.Emit
 import           PlutusCore.Constant.Function
 import           PlutusCore.Constant.Typed
 import           PlutusCore.Core
+import           PlutusCore.Data
 import           PlutusCore.Evaluation.Machine.Exception
 import           PlutusCore.Evaluation.Result
 import           PlutusCore.Name
@@ -33,6 +37,7 @@ import qualified Data.ByteString                         as BS
 import qualified Data.Kind                               as GHC
 import           Data.Proxy
 import           Data.Some.GADT
+import           Data.Text                               (Text)
 import           Data.Type.Bool
 import           Data.Type.Equality
 import           GHC.TypeLits
@@ -210,10 +215,11 @@ type instance ToBinds (x ': xs) = Merge (ToBinds x) (ToBinds xs)
 
 type instance ToBinds Integer       = '[]
 type instance ToBinds BS.ByteString = '[]
-type instance ToBinds Char          = '[]
+type instance ToBinds Text          = '[]
 type instance ToBinds ()            = '[]
 type instance ToBinds Bool          = '[]
 type instance ToBinds Int           = '[]
+type instance ToBinds Data          = '[]
 type instance ToBinds []            = '[]
 type instance ToBinds (,)           = '[]
 type instance ToBinds [a]           = '[]  -- One can't directly put a PLC type variable into lists

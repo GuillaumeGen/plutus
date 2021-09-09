@@ -36,7 +36,6 @@ module PlutusCore
     , DefaultUni (..)
     , pattern DefaultUniList
     , pattern DefaultUniPair
-    , pattern DefaultUniString
     , DefaultFun (..)
     -- * AST
     , Term (..)
@@ -135,7 +134,6 @@ module PlutusCore
 
 import           PlutusPrelude
 
-import           PlutusCore.CBOR                                          ()
 import qualified PlutusCore.Check.Uniques                                 as Uniques
 import           PlutusCore.Core
 import           PlutusCore.DeBruijn

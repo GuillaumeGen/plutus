@@ -31,6 +31,7 @@ import qualified Data.Text                         as T
 import           Data.Text.Extras                  (tshow)
 import           Data.Text.Prettyprint.Doc
 import           GHC.Generics                      (Generic)
+import           Ledger.Fee                        (FeeConfig)
 
 import           Ledger                            hiding (to, value)
 import qualified Ledger.AddressMap                 as AM
@@ -43,7 +44,6 @@ import qualified Wallet.Emulator.Chain             as Chain
 import qualified Wallet.Emulator.ChainIndex        as ChainIndex
 import           Wallet.Emulator.LogMessages       (RequestHandlerLogMsg, TxBalanceMsg)
 import qualified Wallet.Emulator.NodeClient        as NC
-import qualified Wallet.Emulator.Notify            as Notify
 import           Wallet.Emulator.Wallet            (Wallet)
 import qualified Wallet.Emulator.Wallet            as Wallet
 import           Wallet.Types                      (AssertionError (..))
@@ -78,7 +78,6 @@ data EmulatorEvent' =
     | ClientEvent Wallet.Wallet NC.NodeClientEvent
     | WalletEvent Wallet.Wallet Wallet.WalletEvent
     | ChainIndexEvent Wallet.Wallet ChainIndex.ChainIndexEvent
-    | NotificationEvent Notify.EmulatorNotifyLogMsg
     | SchedulerEvent Scheduler.SchedulerLog
     | InstanceEvent ContractInstanceLog
     | UserThreadEvent UserThreadMsg
@@ -91,7 +90,6 @@ instance Pretty EmulatorEvent' where
         ChainEvent e        -> pretty e
         WalletEvent w e     -> pretty w <> colon <+> pretty e
         ChainIndexEvent w e -> pretty w <> colon <+> pretty e
-        NotificationEvent e -> pretty e
         SchedulerEvent e    -> pretty e
         InstanceEvent e     -> pretty e
         UserThreadEvent e   -> pretty e
@@ -107,11 +105,11 @@ walletClientEvent w = prism' (ClientEvent w) (\case { ClientEvent w' c | w == w'
 walletEvent :: Wallet.Wallet -> Prism' EmulatorEvent' Wallet.WalletEvent
 walletEvent w = prism' (WalletEvent w) (\case { WalletEvent w' c | w == w' -> Just c; _ -> Nothing })
 
+walletEvent' :: Prism' EmulatorEvent' (Wallet.Wallet, Wallet.WalletEvent)
+walletEvent' = prism' (uncurry WalletEvent) (\case { WalletEvent w c -> Just (w, c); _ -> Nothing })
+
 chainIndexEvent :: Wallet.Wallet -> Prism' EmulatorEvent' ChainIndex.ChainIndexEvent
 chainIndexEvent w = prism' (ChainIndexEvent w) (\case { ChainIndexEvent w' c | w == w' -> Just c; _ -> Nothing })
-
-notificationEvent :: Prism' EmulatorEvent' Notify.EmulatorNotifyLogMsg
-notificationEvent = prism' NotificationEvent (\case { NotificationEvent e -> Just e; _ -> Nothing })
 
 schedulerEvent :: Prism' EmulatorEvent' Scheduler.SchedulerLog
 schedulerEvent = prism' SchedulerEvent (\case { SchedulerEvent e -> Just e; _ -> Nothing })
@@ -285,11 +283,12 @@ emulatorStateInitialDist mp = emulatorStatePool [tx] where
             { txInputs = mempty
             , txCollateral = mempty
             , txOutputs = uncurry (flip pubKeyTxOut) <$> Map.toList mp
-            , txForge = foldMap snd $ Map.toList mp
+            , txMint = foldMap snd $ Map.toList mp
             , txFee = mempty
             , txValidRange = WAPI.defaultSlotRange
-            , txForgeScripts = mempty
+            , txMintScripts = mempty
             , txSignatures = mempty
+            , txRedeemers = mempty
             , txData = mempty
             }
 
@@ -335,8 +334,9 @@ handleMultiAgentControl = interpret $ \case
 
 handleMultiAgent
     :: forall effs. Members MultiAgentEffs effs
-    => Eff (MultiAgentEffect ': effs) ~> Eff effs
-handleMultiAgent = interpret $ \case
+    => FeeConfig
+    -> Eff (MultiAgentEffect ': effs) ~> Eff effs
+handleMultiAgent feeCfg = interpret $ \case
     -- TODO: catch, log, and rethrow wallet errors?
     WalletAction wallet act ->  do
         let
@@ -352,11 +352,9 @@ handleMultiAgent = interpret $ \case
             p5 = walletEvent wallet . Wallet._RequestHandlerLog
             p6 :: AReview EmulatorEvent' TxBalanceMsg
             p6 = walletEvent wallet . Wallet._TxBalanceLog
-            p7 :: AReview EmulatorEvent' Notify.EmulatorNotifyLogMsg
-            p7 = notificationEvent
         act
             & raiseEnd
-            & interpret Wallet.handleWallet
+            & interpret (Wallet.handleWallet feeCfg)
             & subsume
             & NC.handleNodeClient
             & ChainIndex.handleChainIndex
@@ -364,7 +362,6 @@ handleMultiAgent = interpret $ \case
             & interpret (mapLog (review p5))
             & interpret (mapLog (review p6))
             & interpret (mapLog (review p4))
-            & interpret (mapLog (review p7))
             & interpret (handleZoomedState (walletState wallet))
             & interpret (mapLog (review p1))
             & interpret (handleZoomedState (walletState wallet . Wallet.nodeClient))

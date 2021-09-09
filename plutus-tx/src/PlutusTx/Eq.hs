@@ -3,11 +3,10 @@ module PlutusTx.Eq (Eq(..), (/=)) where
 
 import           PlutusTx.Bool
 import qualified PlutusTx.Builtins as Builtins
-import           PlutusTx.Data
 
 import           Prelude           hiding (Eq (..), not, (&&))
 
-{-# ANN module ("HLint: ignore"::String) #-}
+{- HLINT ignore -}
 
 infix 4 ==, /=
 
@@ -27,11 +26,15 @@ instance Eq Integer where
     {-# INLINABLE (==) #-}
     (==) = Builtins.equalsInteger
 
-instance Eq Builtins.ByteString where
+instance Eq Builtins.BuiltinByteString where
     {-# INLINABLE (==) #-}
     (==) = Builtins.equalsByteString
 
-instance Eq Builtins.String where
+instance Eq Builtins.BuiltinData where
+    {-# INLINABLE (==) #-}
+    (==) = Builtins.equalsData
+
+instance Eq Builtins.BuiltinString where
     {-# INLINABLE (==) #-}
     (==) = Builtins.equalsString
 
@@ -67,15 +70,9 @@ instance (Eq a, Eq b) => Eq (a, b) where
     {-# INLINABLE (==) #-}
     (a, b) == (a', b') = a == a' && b == b'
 
-instance Eq Data where
+instance Eq Ordering where
     {-# INLINABLE (==) #-}
-    Constr i ds == Constr i' ds' = i == i' && ds == ds'
-    Constr _ _  == _             = False
-    Map ds == Map ds'            = ds == ds'
-    Map _  == _                  = False
-    I i == I i'                  = i == i'
-    I _ == _                     = False
-    B b == B b'                  = b == b'
-    B _ == _                     = False
-    List ls == List ls'          = ls == ls'
-    List _  == _                 = False
+    EQ == EQ = True
+    GT == GT = True
+    LT == LT = True
+    _ == _   = False

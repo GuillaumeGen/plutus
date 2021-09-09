@@ -2,7 +2,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs            #-}
 {-# LANGUAGE LambdaCase       #-}
-{-# LANGUAGE MonoLocalBinds   #-}
 {-# LANGUAGE NamedFieldPuns   #-}
 {-# LANGUAGE RankNTypes       #-}
 {-# LANGUAGE TemplateHaskell  #-}
@@ -17,6 +16,8 @@ module Wallet.Emulator.Stream(
     , initialChainState
     , initialDist
     , initialState
+    , slotConfig
+    , feeConfig
     , runTraceStream
     -- * Stream manipulation
     , takeUntilSlot
@@ -44,6 +45,7 @@ import           Data.Maybe                             (fromMaybe)
 import qualified Data.Set                               as Set
 import qualified Ledger.AddressMap                      as AM
 import           Ledger.Blockchain                      (Block, OnChainTx (..))
+import           Ledger.Fee                             (FeeConfig)
 import           Ledger.Slot                            (Slot)
 import           Ledger.Value                           (Value)
 import           Streaming                              (Stream)
@@ -59,6 +61,7 @@ import           Wallet.Emulator.MultiAgent             (EmulatorState, Emulator
 import           Wallet.Emulator.Wallet                 (Wallet (..), walletAddress)
 
 -- TODO: Move these two to 'Wallet.Emulator.XXX'?
+import           Ledger.TimeSlot                        (SlotConfig)
 import           Plutus.Contract.Trace                  (InitialDistribution, defaultDist)
 import           Plutus.Trace.Emulator.ContractInstance (EmulatorRuntimeError)
 
@@ -93,7 +96,7 @@ foldStreamM :: forall m a b c.
     => L.FoldM m a b
     -> S.Stream (S.Of a) m c
     -> m (S.Of b c)
-foldStreamM theFold = L.impurely S.foldM theFold
+foldStreamM = L.impurely S.foldM
 
 -- | Consume an emulator event stream.
 foldEmulatorStreamM :: forall effs a b.
@@ -116,7 +119,7 @@ runTraceStream :: forall effs.
             , Error EmulatorRuntimeError
             ] ()
     -> Stream (Of (LogMessage EmulatorEvent)) (Eff effs) (Maybe EmulatorErr, EmulatorState)
-runTraceStream conf =
+runTraceStream conf@EmulatorConfig{_slotConfig, _feeConfig} =
     fmap (first (either Just (const Nothing)))
     . S.hoist (pure . run)
     . runStream @(LogMessage EmulatorEvent) @_ @'[]
@@ -127,14 +130,16 @@ runTraceStream conf =
     . wrapError WalletErr
     . wrapError AssertionErr
     . wrapError InstanceErr
-    . EM.processEmulated
+    . EM.processEmulated _slotConfig _feeConfig
     . subsume
     . subsume @(State EmulatorState)
     . raiseEnd
 
 data EmulatorConfig =
     EmulatorConfig
-        { _initialChainState      :: InitialChainState -- ^ State of the blockchain at the beginning of the simulation. Can be given as a map of funds to wallets, or as a block of transactions.
+        { _initialChainState :: InitialChainState -- ^ State of the blockchain at the beginning of the simulation. Can be given as a map of funds to wallets, or as a block of transactions.
+        , _slotConfig        :: SlotConfig -- ^ Set the start time of slot 0 and the length of one slot
+        , _feeConfig         :: FeeConfig -- ^ Configure the fee of a transaction
         } deriving (Eq, Show)
 
 type InitialChainState = Either InitialDistribution EM.TxPool
@@ -151,6 +156,8 @@ initialDist = either id (walletFunds . map Valid) where
 instance Default EmulatorConfig where
   def = EmulatorConfig
           { _initialChainState = Left defaultDist
+          , _slotConfig = def
+          , _feeConfig = def
           }
 
 initialState :: EmulatorConfig -> EM.EmulatorState

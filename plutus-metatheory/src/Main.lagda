@@ -1,4 +1,5 @@
 \begin{code}
+{-# OPTIONS --rewriting #-}
 module Main where
 open import Agda.Builtin.IO
 import IO.Primitive as IO using (return;_>>=_)
@@ -13,6 +14,7 @@ open import Agda.Builtin.Nat
 open import Data.Nat
 open import Agda.Builtin.Int
 open import Data.Integer
+open import Data.Integer.Show
 open import Data.Product renaming (_,_ to _,,_)
 open import Data.Bool
 open import Data.Fin
@@ -21,7 +23,7 @@ open import Data.List hiding (_++_)
 import Debug.Trace as D
 
 open import Type
-open import Builtin hiding (ByteString)
+open import Builtin
 open import Check
 open import Scoped.Extrication
 open import Type.BetaNBE
@@ -32,10 +34,11 @@ import Scoped as S
 import Scoped.Reduction as S
 open import Raw
 open import Scoped
-open import Utils
+open import Utils hiding (ByteString)
 open import Untyped
 open import Scoped.CK
 open import Algorithmic
+open import Algorithmic.ReductionEC hiding (Term;Type)
 open import Algorithmic.Reduction
 open import Algorithmic.CK
 open import Algorithmic.CEKV
@@ -332,7 +335,7 @@ typeCheckByteString b = do
 
 junk : ∀{n} → Vec String n
 junk {zero}      = []
-junk {Nat.suc n} = Data.Integer.show (pos n) ∷ junk
+junk {Nat.suc n} = Data.Integer.Show.show (pos n) ∷ junk
 
 alphaTm : ByteString → ByteString → Bool
 alphaTm plc1 plc2 with parseTm plc1 | parseTm plc2

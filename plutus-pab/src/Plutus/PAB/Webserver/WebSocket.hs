@@ -6,6 +6,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeOperators       #-}
 {-
@@ -56,7 +57,7 @@ import           Ledger.Slot                             (Slot)
 import qualified Network.WebSockets                      as WS
 import           Network.WebSockets.Connection           (Connection, PendingConnection)
 import           Numeric.Natural                         (Natural)
-import           Plutus.Contract.Effects.ExposeEndpoint  (ActiveEndpoint (..))
+import           Plutus.Contract.Effects                 (ActiveEndpoint (..))
 import           Plutus.PAB.Core                         (PABAction)
 import qualified Plutus.PAB.Core                         as Core
 import           Plutus.PAB.Core.ContractInstance.STM    (BlockchainEnv, InstancesState, OpenEndpoint (..))
@@ -75,12 +76,12 @@ import           Wallet.Types                            (ContractInstanceId (..
 
 getContractReport :: forall t env. Contract.PABContract t => PABAction t env (ContractReport (Contract.ContractDef t))
 getContractReport = do
-    installedContracts <- Contract.getDefinitions @t
+    availableContracts <- Contract.getDefinitions @t
     activeContractIDs <- fmap fst . Map.toList <$> Contract.getActiveContracts @t
     crAvailableContracts <-
         traverse
             (\t -> ContractSignatureResponse t <$> Contract.exportSchema @t t)
-            installedContracts
+            availableContracts
     crActiveContractStates <- traverse (\i -> Contract.getState @t i >>= \s -> pure (i, fromResp $ Contract.serialisableState (Proxy @t) s)) activeContractIDs
     pure ContractReport {crAvailableContracts, crActiveContractStates}
 
@@ -103,7 +104,7 @@ joinStream STMStream{unSTMStream} = STMStream $ unSTMStream >>= go where
             Right (newStream, Nothing) -> go (newStream, Nothing)
 
 singleton :: STM a -> STMStream a
-singleton = STMStream . fmap (\a -> (a, Nothing))
+singleton = STMStream . fmap (, Nothing)
 
 instance Applicative STMStream where
     pure = singleton . pure
@@ -182,7 +183,7 @@ combinedWSStreamToClient wsState blockchainEnv instancesState = do
 initialWSState :: STM WSState
 initialWSState = WSState <$> STM.newTVar mempty <*> STM.newTVar mempty
 
-slotChange :: BlockchainEnv -> (STMStream Slot)
+slotChange :: BlockchainEnv -> STMStream Slot
 slotChange = unfold . Instances.currentSlot
 
 walletFundsChange :: Wallet -> BlockchainEnv -> STMStream Ledger.Value

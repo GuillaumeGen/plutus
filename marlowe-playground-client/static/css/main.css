@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,700,700i&display=swap");
+
 @import './normalize.css';
 @import './css_var_colors.css';
 @import './css_var_globals.css';
@@ -19,6 +21,9 @@
 @import './confirm_unsaved_navigation.css';
 @import './simulation.css';
 @import './save-as-modal.css';
+@import './../../web-common/static/popover.css';
+@import "../../web-common/static/icons.css";
+
 
 /* @tailwind base; */
 @tailwind components;

@@ -14,28 +14,29 @@ module Spec.Stablecoin(
 import           Control.Lens                (preview)
 import           Control.Monad               (void)
 import           Data.Maybe                  (listToMaybe, mapMaybe)
+import           Prelude                     hiding (negate)
+
 import           Ledger.Ada                  (adaSymbol, adaToken)
 import qualified Ledger.Ada                  as Ada
 import           Ledger.Address              (Address)
 import           Ledger.Oracle               (Observation, SignedMessage, signObservation)
-import           Ledger.Slot                 (Slot (..))
+import           Ledger.Time                 (POSIXTime)
+import qualified Ledger.TimeSlot             as TimeSlot
 import           Ledger.Typed.Scripts        (validatorAddress)
 import           Ledger.Value                (Value)
 import qualified Ledger.Value                as Value
 import           Plutus.Contract.Test
-import           PlutusTx.Numeric            (negate, one, zero)
-import           PlutusTx.Ratio              as Ratio
-
-import           Prelude                     hiding (negate)
-import           Test.Tasty
-
 import           Plutus.Contracts.Stablecoin (BC (..), ConversionRate, Input (..), RC (..), SC (..), SCAction (..),
                                               Stablecoin (..), StablecoinError, StablecoinSchema)
 import qualified Plutus.Contracts.Stablecoin as Stablecoin
 import           Plutus.Trace.Emulator       (ContractHandle, EmulatorTrace)
 import qualified Plutus.Trace.Emulator       as Trace
 import           Plutus.Trace.Emulator.Types (_ContractLog, cilMessage)
+import           PlutusTx.Numeric            (negate, one, zero)
+import           PlutusTx.Ratio              as Ratio
 import           Wallet.Emulator.MultiAgent  (eteEvent)
+
+import           Test.Tasty
 
 user :: Wallet
 user = Wallet 1
@@ -58,8 +59,8 @@ coin = Stablecoin
     , scReservecoinTokenName = "reservecoin"
     }
 
-signConversionRate :: ConversionRate -> SignedMessage (Observation ConversionRate)
-signConversionRate rate = signObservation (Slot 0) rate (walletPrivKey oracle)
+signConversionRate :: POSIXTime -> ConversionRate -> SignedMessage (Observation ConversionRate)
+signConversionRate startTime rate = signObservation startTime rate (walletPrivKey oracle)
 
 stablecoinAddress :: Address
 stablecoinAddress = validatorAddress $ Stablecoin.typedValidator coin
@@ -116,27 +117,30 @@ initialise = do
 
 mintReserveCoins :: RC Integer -> ConversionRate -> ContractHandle () StablecoinSchema StablecoinError -> Trace.EmulatorTrace ()
 mintReserveCoins rc rate hdl = do
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
     Trace.callEndpoint @"run step" hdl
         Input
-            { inpConversionRate = signConversionRate rate
+            { inpConversionRate = signConversionRate startTime rate
             , inpSCAction = MintReserveCoin rc
             }
     void $ Trace.waitNSlots 2
 
 mintStableCoins :: SC Integer -> ConversionRate -> ContractHandle () StablecoinSchema StablecoinError -> Trace.EmulatorTrace ()
 mintStableCoins sc rate hdl = do
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
     Trace.callEndpoint @"run step" hdl
         Input
-            { inpConversionRate = signConversionRate rate
+            { inpConversionRate = signConversionRate startTime rate
             , inpSCAction = MintStablecoin sc
             }
     void $ Trace.waitNSlots 2
 
 redeemStableCoins :: SC Integer -> ConversionRate -> ContractHandle () StablecoinSchema StablecoinError -> Trace.EmulatorTrace ()
 redeemStableCoins sc rate hdl = do
+    startTime <- TimeSlot.scSlotZeroTime <$> Trace.getSlotConfig
     Trace.callEndpoint @"run step" hdl
         Input
-            { inpConversionRate = signConversionRate rate
+            { inpConversionRate = signConversionRate startTime rate
             , inpSCAction = MintStablecoin (negate sc)
             }
     void $ Trace.waitNSlots 2

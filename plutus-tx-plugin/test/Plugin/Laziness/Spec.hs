@@ -2,7 +2,9 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
-{-# OPTIONS_GHC -fplugin PlutusTx.Plugin -fplugin-opt PlutusTx.Plugin:defer-errors -fplugin-opt PlutusTx.Plugin:no-context #-}
+{-# OPTIONS_GHC -fplugin PlutusTx.Plugin #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:defer-errors #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:no-context #-}
 
 module Plugin.Laziness.Spec where
 
@@ -30,13 +32,13 @@ joinErrorPir :: CompiledCode (Bool -> Bool -> ())
 joinErrorPir = plc (Proxy @"joinError") joinError
 
 {-# NOINLINE monoId #-}
-monoId :: Builtins.ByteString -> Builtins.ByteString
+monoId :: Builtins.BuiltinByteString -> Builtins.BuiltinByteString
 monoId x = x
 
 -- This is a non-value let-binding, so will be delayed, and needs a dependency on Unit
 {-# NOINLINE aByteString #-}
-aByteString :: Builtins.ByteString
+aByteString :: Builtins.BuiltinByteString
 aByteString = monoId Builtins.emptyByteString
 
-lazyDepUnit :: CompiledCode Builtins.ByteString
+lazyDepUnit :: CompiledCode Builtins.BuiltinByteString
 lazyDepUnit = plc (Proxy @"lazyDepUnit") aByteString

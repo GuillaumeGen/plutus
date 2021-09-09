@@ -24,12 +24,9 @@ import           Control.Monad.Freer         (Eff, LastMember, Member, type (~>)
 import           Control.Monad.Freer.Error   (Error, throwError)
 import           Control.Monad.Freer.Reader  (Reader, ask)
 import           Control.Monad.IO.Class      (MonadIO (..))
-import           Data.Aeson                  (Value)
 import           Data.Map                    (Map)
-import           Plutus.Contract.State       (ContractResponse)
-import           Plutus.PAB.Effects.Contract (ContractStore, State)
+import           Plutus.PAB.Effects.Contract (ContractStore)
 import qualified Plutus.PAB.Effects.Contract as Contract
-import           Plutus.PAB.Events.Contract  (ContractPABRequest)
 import           Plutus.PAB.Types            (PABError (..))
 import           Plutus.PAB.Webserver.Types  (ContractActivationArgs)
 import           Wallet.Types                (ContractInstanceId)
@@ -55,7 +52,6 @@ handleContractStore ::
     ( LastMember IO effs
     , Member (Reader (InMemInstances t)) effs
     , Member (Error PABError) effs
-    , State t ~ ContractResponse Value Value Value ContractPABRequest
     )
     => ContractStore t
     ~> Eff effs

@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts   #-}
 {-# LANGUAGE NamedFieldPuns     #-}
 {-# LANGUAGE NoImplicitPrelude  #-}
+{-# LANGUAGE TemplateHaskell    #-}
 {-# LANGUAGE TypeApplications   #-}
 {-# LANGUAGE TypeFamilies       #-}
 {-# LANGUAGE TypeOperators      #-}
@@ -23,6 +24,7 @@ module Plutus.Contracts.Prism.Unlock(
     , UnlockError(..)
     ) where
 
+import           Control.Lens                        (makeClassyPrisms)
 import           Control.Monad                       (forever)
 import           Data.Aeson                          (FromJSON, ToJSON)
 import           GHC.Generics                        (Generic)
@@ -56,54 +58,43 @@ data STOSubscriber =
     deriving stock (Generic, Haskell.Eq, Haskell.Show)
     deriving anyclass (ToJSON, FromJSON, ToSchema)
 
-type STOSubscriberSchema =
-    BlockchainActions
-        .\/ Endpoint "sto" STOSubscriber
+type STOSubscriberSchema = Endpoint "sto" STOSubscriber
 
 -- | Obtain a token from the credential manager app,
 --   then participate in the STO
 subscribeSTO :: forall w s.
-    ( HasBlockchainActions s
-    , HasEndpoint "sto" STOSubscriber s
+    ( HasEndpoint "sto" STOSubscriber s
     )
     => Contract w s UnlockError ()
-subscribeSTO = forever $ handleError (const $ return ()) $ do
-    STOSubscriber{wCredential, wSTOIssuer, wSTOTokenName, wSTOAmount} <-
-        mapError WithdrawEndpointError
-        $ endpoint @"sto"
-    (credConstraints, credLookups) <- obtainCredentialTokenData wCredential
-    let stoData =
-            STOData
-                { stoIssuer = wSTOIssuer
-                , stoTokenName = wSTOTokenName
-                , stoCredentialToken = Credential.token wCredential
-                }
-        stoCoins = STO.coins stoData wSTOAmount
-        constraints =
-            Constraints.mustForgeValue stoCoins
-            <> Constraints.mustPayToPubKey wSTOIssuer (Ada.lovelaceValueOf wSTOAmount)
-            <> credConstraints
-        lookups =
-            Constraints.monetaryPolicy (STO.policy stoData)
-            <> credLookups
-    mapError WithdrawTxError
-        $ submitTxConstraintsWith lookups constraints >>= awaitTxConfirmed . txId
+subscribeSTO = forever $ handleError (const $ return ()) $ awaitPromise $
+    endpoint @"sto" $ \STOSubscriber{wCredential, wSTOIssuer, wSTOTokenName, wSTOAmount} -> do
+        (credConstraints, credLookups) <- obtainCredentialTokenData wCredential
+        let stoData =
+                STOData
+                    { stoIssuer = wSTOIssuer
+                    , stoTokenName = wSTOTokenName
+                    , stoCredentialToken = Credential.token wCredential
+                    }
+            stoCoins = STO.coins stoData wSTOAmount
+            constraints =
+                Constraints.mustMintValue stoCoins
+                <> Constraints.mustPayToPubKey wSTOIssuer (Ada.lovelaceValueOf wSTOAmount)
+                <> credConstraints
+            lookups =
+                Constraints.mintingPolicy (STO.policy stoData)
+                <> credLookups
+        mapError WithdrawTxError
+            $ submitTxConstraintsWith lookups constraints >>= awaitTxConfirmed . txId
 
-type UnlockExchangeSchema =
-    BlockchainActions
-        .\/ Endpoint "unlock from exchange" Credential
+type UnlockExchangeSchema = Endpoint "unlock from exchange" Credential
 
 -- | Obtain a token from the credential manager app,
 --   then use it to unlock funds that were locked by an exchange.
 unlockExchange :: forall w s.
-    ( HasBlockchainActions s
-    , HasEndpoint "unlock from exchange" Credential s
+    ( HasEndpoint "unlock from exchange" Credential s
     )
     => Contract w s UnlockError ()
-unlockExchange = do
-    credential <-
-        mapError WithdrawEndpointError
-        $ endpoint @"unlock from exchange"
+unlockExchange = awaitPromise $ endpoint @"unlock from exchange" $ \credential -> do
     ownPK <- mapError WithdrawPkError $ pubKeyHash <$> ownPubKey
     (credConstraints, credLookups) <- obtainCredentialTokenData credential
     (accConstraints, accLookups) <-
@@ -118,8 +109,7 @@ unlockExchange = do
 -- | Get the constraints and script lookups that are needed to construct a
 --   transaction that presents the 'Credential'
 obtainCredentialTokenData :: forall w s.
-    HasBlockchainActions s
-    => Credential
+    Credential
     -> Contract w s UnlockError (TxConstraints IDAction IDState, ScriptLookups (StateMachine IDState IDAction))
 obtainCredentialTokenData credential = do
     -- credentialManager <- mapError WithdrawEndpointError $ endpoint @"credential manager"
@@ -152,3 +142,8 @@ data UnlockError =
     | UnlockMkTxError Constraints.MkTxError
     deriving stock (Generic, Haskell.Eq, Haskell.Show)
     deriving anyclass (ToJSON, FromJSON)
+
+makeClassyPrisms ''UnlockError
+
+instance AsContractError UnlockError where
+    _ContractError = _WithdrawEndpointError . _ContractError

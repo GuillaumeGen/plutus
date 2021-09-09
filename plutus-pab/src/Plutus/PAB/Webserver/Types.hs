@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveGeneric        #-}
 {-# LANGUAGE DerivingVia          #-}
 {-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE NamedFieldPuns       #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE StrictData           #-}
@@ -21,8 +20,7 @@ import           Ledger.Index                            (UtxoIndex)
 import           Ledger.Slot                             (Slot)
 import           Ledger.Value                            (Value)
 import           Playground.Types                        (FunctionSchema)
-import           Plutus.Contract.Effects.ExposeEndpoint  (ActiveEndpoint)
-import           Plutus.PAB.Events.Contract              (ContractPABRequest)
+import           Plutus.Contract.Effects                 (ActiveEndpoint, PABReq)
 import           Plutus.PAB.Events.ContractInstanceState (PartiallyDecodedResponse)
 import           Schema                                  (FormSchema)
 import           Wallet.Emulator.Wallet                  (Wallet)
@@ -32,7 +30,7 @@ import           Wallet.Types                            (ContractInstanceId)
 data ContractReport t =
     ContractReport
         { crAvailableContracts   :: [ContractSignatureResponse t]
-        , crActiveContractStates :: [(ContractInstanceId, PartiallyDecodedResponse ContractPABRequest)]
+        , crActiveContractStates :: [(ContractInstanceId, PartiallyDecodedResponse PABReq)]
         }
     deriving stock (Generic, Eq, Show)
     deriving anyclass (ToJSON, FromJSON)
@@ -85,7 +83,7 @@ data ContractInstanceClientState t =
         { cicContract     :: ContractInstanceId
         , cicCurrentState :: PartiallyDecodedResponse ActiveEndpoint
         , cicWallet       :: Wallet
-        , cicDefintion    :: t
+        , cicDefinition   :: t
         }
         deriving stock (Eq, Show, Generic)
         deriving anyclass (ToJSON, FromJSON)

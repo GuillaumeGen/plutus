@@ -5,32 +5,39 @@
 The interface to Plutus V1 for the ledger.
 -}
 module Plutus.V1.Ledger.Api (
+    -- * Scripts
     SerializedScript
+    , Script
+    , fromCompiledCode
     -- * Validating scripts
     , validateScript
-    -- * Cost model
-    , validateCostModelParams
-    , defaultCostModelParams
-    , CostModelParams
     -- * Running scripts
     , evaluateScriptRestricting
     , evaluateScriptCounting
-    -- * Serialising scripts
-    , plutusScriptEnvelopeType
-    -- * Data
-    , Data (..)
-    , IsData (..)
-    -- ** Costing-related types
-    , ExBudget (..)
-    , ExCPU (..)
-    , ExMemory (..)
     -- ** Verbose mode and log output
     , VerboseMode (..)
     , LogOutput
+    -- * Serialising scripts
+    , plutusScriptEnvelopeType
+    , plutusDatumEnvelopeType
+    , plutusRedeemerEnvelopeType
+    -- * Costing-related types
+    , ExBudget (..)
+    , ExCPU (..)
+    , ExMemory (..)
+    , SatInt
+    -- ** Cost model
+    , validateCostModelParams
+    , defaultCostModelParams
+    , CostModelParams
     -- * Context types
     , ScriptContext(..)
     , ScriptPurpose(..)
     -- ** Supporting types used in the context types
+    -- *** ByteStrings
+    , BuiltinByteString
+    , toBuiltin
+    , fromBuiltin
     -- *** Bytes
     , LedgerBytes (..)
     , fromBytes
@@ -39,30 +46,65 @@ module Plutus.V1.Ledger.Api (
     -- *** Credentials
     , StakingCredential(..)
     , Credential(..)
+    -- *** Value
+    , Value (..)
+    , CurrencySymbol (..)
+    , TokenName (..)
+    , singleton
+    , unionWith
+    , adaSymbol
+    , adaToken
+    -- *** Time
+    , POSIXTime (..)
+    , POSIXTimeRange
     -- *** Types for representing transactions
     , Address (..)
     , PubKeyHash (..)
+    , TxId (..)
     , TxInfo (..)
     , TxOut(..)
     , TxOutRef(..)
     , TxInInfo(..)
-    , Slot (..)
-    , SlotRange
     -- *** Intervals
     , Interval (..)
     , Extended (..)
     , Closure
     , UpperBound (..)
     , LowerBound (..)
+    , always
+    , from
+    , to
+    , lowerBound
+    , upperBound
+    , strictLowerBound
+    , strictUpperBound
     -- *** Newtypes for script/datum types and hash types
     , Validator (..)
+    , mkValidatorScript
+    , unValidatorScript
     , ValidatorHash (..)
-    , MonetaryPolicy (..)
-    , MonetaryPolicyHash (..)
+    , MintingPolicy (..)
+    , mkMintingPolicyScript
+    , unMintingPolicyScript
+    , MintingPolicyHash (..)
+    , StakeValidator (..)
+    , mkStakeValidatorScript
+    , unStakeValidatorScript
+    , StakeValidatorHash (..)
     , Redeemer (..)
     , RedeemerHash (..)
     , Datum (..)
     , DatumHash (..)
+    -- * Data
+    , PLC.Data (..)
+    , BuiltinData (..)
+    , ToData (..)
+    , FromData (..)
+    , UnsafeFromData (..)
+    , toData
+    , fromData
+    , dataToBuiltinData
+    , builtinDataToData
     -- * Errors
     , EvaluationError (..)
 ) where
@@ -75,34 +117,50 @@ import           Data.ByteString.Lazy                             (fromStrict)
 import           Data.ByteString.Short
 import           Data.Either
 import           Data.Maybe                                       (isJust)
-import qualified Data.Text                                        as Text
+import           Data.SatInt
+import           Data.Text                                        (Text)
 import           Data.Text.Prettyprint.Doc
 import           Data.Tuple
+import           Plutus.V1.Ledger.Ada
 import           Plutus.V1.Ledger.Address
 import           Plutus.V1.Ledger.Bytes
 import           Plutus.V1.Ledger.Contexts
 import           Plutus.V1.Ledger.Credential
 import           Plutus.V1.Ledger.Crypto
 import           Plutus.V1.Ledger.DCert
-import           Plutus.V1.Ledger.Interval
-import           Plutus.V1.Ledger.Scripts
-import           Plutus.V1.Ledger.Slot
+import           Plutus.V1.Ledger.Interval                        hiding (singleton)
+import           Plutus.V1.Ledger.Scripts                         hiding (mkTermToEvaluate)
+import qualified Plutus.V1.Ledger.Scripts                         as Scripts
+import           Plutus.V1.Ledger.Time
+import           Plutus.V1.Ledger.TxId
+import           Plutus.V1.Ledger.Value
 import           PlutusCore                                       as PLC
-import qualified PlutusCore.DeBruijn                              as PLC
+import qualified PlutusCore.Data                                  as PLC
 import           PlutusCore.Evaluation.Machine.CostModelInterface (CostModelParams, applyCostModelParams)
 import           PlutusCore.Evaluation.Machine.ExBudget           (ExBudget (..))
 import qualified PlutusCore.Evaluation.Machine.ExBudget           as PLC
 import           PlutusCore.Evaluation.Machine.ExMemory           (ExCPU (..), ExMemory (..))
 import           PlutusCore.Evaluation.Machine.MachineParameters
-import qualified PlutusCore.MkPlc                                 as PLC
 import           PlutusCore.Pretty
-import           PlutusTx                                         (Data (..), IsData (..))
-import qualified PlutusTx.Lift                                    as PlutusTx
+import           PlutusTx                                         (FromData (..), ToData (..), UnsafeFromData (..),
+                                                                   fromData, toData)
+import           PlutusTx.Builtins.Internal                       (BuiltinData (..), builtinDataToData,
+                                                                   dataToBuiltinData)
+import           PlutusTx.Prelude                                 (BuiltinByteString, fromBuiltin, toBuiltin)
 import qualified UntypedPlutusCore                                as UPLC
 import qualified UntypedPlutusCore.Evaluation.Machine.Cek         as UPLC
 
-plutusScriptEnvelopeType :: Text.Text
+plutusScriptEnvelopeType :: Text
 plutusScriptEnvelopeType = "PlutusV1Script"
+
+-- | It was discussed with the Ledger team that the envelope types for 'Datum'
+-- and 'Redeemer' should be in plutus-ledger-api.
+--
+-- For now, those types will be generic and versioning might be included in
+-- the future.
+plutusDatumEnvelopeType, plutusRedeemerEnvelopeType  :: Text
+plutusDatumEnvelopeType = "ScriptDatum"
+plutusRedeemerEnvelopeType = "ScriptRedeemer"
 
 {- Note [Abstract types in the ledger API]
 We need to support old versions of the ledger API as we update the code that it depends on. You
@@ -131,7 +189,7 @@ validateCostModelParams = isJust . applyCostModelParams PLC.defaultCekCostModel
 data VerboseMode = Verbose | Quiet
     deriving (Eq)
 
-type LogOutput = [Text.Text]
+type LogOutput = [Text]
 
 -- | Scripts to the ledger are serialised bytestrings.
 type SerializedScript = ShortByteString
@@ -154,15 +212,12 @@ instance Pretty EvaluationError where
     pretty CostModelParameterMismatch = "Cost model parameters were not as we expected"
 
 -- | Shared helper for the evaluation functions, deserializes the 'SerializedScript' , applies it to its arguments, and un-deBruijn-ifies it.
-mkTermToEvaluate :: (MonadError EvaluationError m) => SerializedScript -> [Data] -> m (UPLC.Term UPLC.Name PLC.DefaultUni PLC.DefaultFun ())
+mkTermToEvaluate :: (MonadError EvaluationError m) => SerializedScript -> [PLC.Data] -> m (UPLC.Term UPLC.Name PLC.DefaultUni PLC.DefaultFun ())
 mkTermToEvaluate bs args = do
-    (Script (UPLC.Program _ v t)) <- liftEither $ first CodecError $ CBOR.deserialiseOrFail $ fromStrict $ fromShort bs
+    s@(Script (UPLC.Program _ v _)) <- liftEither $ first CodecError $ CBOR.deserialiseOrFail $ fromStrict $ fromShort bs
     unless (v == PLC.defaultVersion ()) $ throwError $ IncompatibleVersionError v
-    let namedTerm = UPLC.termMapNames PLC.fakeNameDeBruijn t
-        -- This should go away when Data is a builtin
-        termArgs = fmap PlutusTx.lift args
-        applied = PLC.mkIterApp () namedTerm termArgs
-    liftEither $ first DeBruijnError $ PLC.runQuoteT $ UPLC.unDeBruijnTerm applied
+    UPLC.Program _ _ t <- liftEither $ first DeBruijnError $ Scripts.mkTermToEvaluate (Scripts.applyArguments s args)
+    pure t
 
 -- | Evaluates a script, with a cost model and a budget that restricts how many
 -- resources it can use according to the cost model.  There's a default cost
@@ -174,7 +229,7 @@ evaluateScriptRestricting
     -> CostModelParams -- ^ The cost model to use
     -> ExBudget        -- ^ The resource budget which must not be exceeded during evaluation
     -> SerializedScript          -- ^ The script to evaluate
-    -> [Data]          -- ^ The arguments to the script
+    -> [PLC.Data]          -- ^ The arguments to the script
     -> (LogOutput, Either EvaluationError ())
 evaluateScriptRestricting verbose cmdata budget p args = swap $ runWriter @LogOutput $ runExceptT $ do
     appliedTerm <- mkTermToEvaluate p args
@@ -186,10 +241,10 @@ evaluateScriptRestricting verbose cmdata budget p args = swap $ runWriter @LogOu
             UPLC.runCek
                 (toMachineParameters model)
                 (UPLC.restricting $ PLC.ExRestrictingBudget budget)
-                (verbose == Verbose)
+                (if verbose == Verbose then UPLC.logEmitter else UPLC.noEmitter)
                 appliedTerm
 
-    tell $ Prelude.map Text.pack logs
+    tell logs
     liftEither $ first CekError $ void res
 
 -- | Evaluates a script, returning the minimum budget that the script would need
@@ -198,7 +253,7 @@ evaluateScriptCounting
     :: VerboseMode     -- ^ Whether to produce log output
     -> CostModelParams -- ^ The cost model to use
     -> SerializedScript          -- ^ The script to evaluate
-    -> [Data]          -- ^ The arguments to the script
+    -> [PLC.Data]          -- ^ The arguments to the script
     -> (LogOutput, Either EvaluationError ExBudget)
 evaluateScriptCounting verbose cmdata p args = swap $ runWriter @LogOutput $ runExceptT $ do
     appliedTerm <- mkTermToEvaluate p args
@@ -210,9 +265,9 @@ evaluateScriptCounting verbose cmdata p args = swap $ runWriter @LogOutput $ run
             UPLC.runCek
                 (toMachineParameters model)
                 UPLC.counting
-                (verbose == Verbose)
+                (if verbose == Verbose then UPLC.logEmitter else UPLC.noEmitter)
                 appliedTerm
 
-    tell $ Prelude.map Text.pack logs
+    tell logs
     liftEither $ first CekError $ void res
     pure final

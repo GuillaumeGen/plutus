@@ -3,7 +3,6 @@
 {-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE GADTs                #-}
-{-# LANGUAGE MonoLocalBinds       #-}
 {-# LANGUAGE MultiWayIf           #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE RankNTypes           #-}
@@ -35,7 +34,7 @@ import           Plutus.Contract.Test               hiding (not)
 import           Plutus.Contract.Test.ContractModel
 import           Plutus.Contracts.GameStateMachine  as G
 import           Plutus.Trace.Emulator              as Trace
-import qualified PlutusTx                           as PlutusTx
+import qualified PlutusTx
 
 -- * QuickCheck model
 
@@ -91,7 +90,7 @@ instance ContractModel GameModel where
         hasToken      $= Just w
         currentSecret $= secret
         gameValue     $= val
-        forge gameTokenVal
+        mint gameTokenVal
         deposit  w gameTokenVal
         withdraw w $ Ada.lovelaceValueOf val
         wait 2
@@ -170,7 +169,7 @@ genValue :: Gen Integer
 genValue = getPositive <$> arbitrary
 
 delay :: Int -> EmulatorTrace ()
-delay n = void $ waitNSlots (fromIntegral n)
+delay n = void $ Trace.waitNSlots (fromIntegral n)
 
 -- Dynamic Logic ----------------------------------------------------------
 
@@ -298,5 +297,5 @@ failTrace = do
 
 gameTokenVal :: Value
 gameTokenVal =
-    let sym = Scripts.forwardingMonetaryPolicyHash G.typedValidator
+    let sym = Scripts.forwardingMintingPolicyHash G.typedValidator
     in G.token sym "guess"

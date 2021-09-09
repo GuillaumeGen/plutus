@@ -1,9 +1,15 @@
 module WalletData.Lenses
-  ( _walletNickname
+  ( _walletLibrary
+  , _cardSection
+  , _walletNicknameInput
+  , _walletIdInput
+  , _remoteWalletInfo
+  , _walletNickname
   , _companionAppId
   , _marloweAppId
   , _walletInfo
   , _assets
+  , _previousCompanionAppState
   , _wallet
   , _pubKey
   , _pubKeyHash
@@ -13,11 +19,31 @@ import Prelude
 import Data.Lens (Lens')
 import Data.Lens.Iso.Newtype (_Newtype)
 import Data.Lens.Record (prop)
+import Data.Map (Map)
+import Data.Maybe (Maybe)
 import Data.Symbol (SProxy(..))
-import Marlowe.PAB (PlutusAppId)
+import InputField.Types (State) as InputField
+import Marlowe.PAB (MarloweData, MarloweParams, PlutusAppId)
 import Marlowe.Semantics (Assets, PubKey)
-import WalletData.Types (PubKeyHash, Wallet, WalletDetails, WalletInfo, WalletNickname)
+import Types (WebData)
+import WalletData.Types (CardSection, PubKeyHash, State, Wallet, WalletIdError, WalletInfo, WalletLibrary, WalletNickname, WalletNicknameError, WalletDetails)
 
+_walletLibrary :: Lens' State WalletLibrary
+_walletLibrary = prop (SProxy :: SProxy "walletLibrary")
+
+_cardSection :: Lens' State CardSection
+_cardSection = prop (SProxy :: SProxy "cardSection")
+
+_walletNicknameInput :: Lens' State (InputField.State WalletNicknameError)
+_walletNicknameInput = prop (SProxy :: SProxy "walletNicknameInput")
+
+_walletIdInput :: Lens' State (InputField.State WalletIdError)
+_walletIdInput = prop (SProxy :: SProxy "walletIdInput")
+
+_remoteWalletInfo :: Lens' State (WebData WalletInfo)
+_remoteWalletInfo = prop (SProxy :: SProxy "remoteWalletInfo")
+
+------------------------------------------------------------
 _walletNickname :: Lens' WalletDetails WalletNickname
 _walletNickname = prop (SProxy :: SProxy "walletNickname")
 
@@ -32,6 +58,9 @@ _walletInfo = prop (SProxy :: SProxy "walletInfo")
 
 _assets :: Lens' WalletDetails Assets
 _assets = prop (SProxy :: SProxy "assets")
+
+_previousCompanionAppState :: Lens' WalletDetails (Maybe (Map MarloweParams MarloweData))
+_previousCompanionAppState = prop (SProxy :: SProxy "previousCompanionAppState")
 
 ------------------------------------------------------------
 _wallet :: Lens' WalletInfo Wallet

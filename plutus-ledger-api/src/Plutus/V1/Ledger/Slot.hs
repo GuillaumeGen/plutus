@@ -24,7 +24,7 @@ import           Codec.Serialise.Class     (Serialise)
 import           Control.DeepSeq           (NFData)
 import           Data.Aeson                (FromJSON, FromJSONKey, ToJSON, ToJSONKey)
 import           Data.Hashable             (Hashable)
-import           Data.Text.Prettyprint.Doc (Pretty (pretty), comma, (<+>))
+import           Data.Text.Prettyprint.Doc (Pretty (pretty), (<+>))
 import           GHC.Generics              (Generic)
 import qualified Prelude                   as Haskell
 
@@ -35,22 +35,20 @@ import           PlutusTx.Prelude
 
 import           Plutus.V1.Ledger.Interval
 
-{-# ANN module ("HLint: ignore Redundant if" :: Haskell.String) #-}
+{- HLINT ignore "Redundant if" -}
 
 -- | The slot number. This is a good proxy for time, since on the Cardano blockchain
 -- slots pass at a constant rate.
 newtype Slot = Slot { getSlot :: Integer }
     deriving stock (Haskell.Eq, Haskell.Ord, Haskell.Show, Generic)
     deriving anyclass (FromJSON, FromJSONKey, ToJSON, ToJSONKey, NFData)
-    deriving newtype (Haskell.Num, AdditiveSemigroup, AdditiveMonoid, AdditiveGroup, Haskell.Enum, Eq, Ord, Haskell.Real, Haskell.Integral, Serialise, Hashable, PlutusTx.IsData)
+    deriving newtype (AdditiveSemigroup, AdditiveMonoid, AdditiveGroup, Eq, Ord, Enum, PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
+    deriving newtype (Haskell.Num, Haskell.Enum, Haskell.Real, Haskell.Integral, Serialise, Hashable)
 
 makeLift ''Slot
 
 instance Pretty Slot where
     pretty (Slot i) = "Slot" <+> pretty i
-
-instance Pretty (Interval Slot) where
-    pretty (Interval l h) = pretty l <+> comma <+> pretty h
 
 -- | An 'Interval' of 'Slot's.
 type SlotRange = Interval Slot

@@ -23,9 +23,17 @@ common lang
                         DeriveGeneric StandaloneDeriving DeriveLift
                         GeneralizedNewtypeDeriving DeriveFunctor DeriveFoldable
                         DeriveTraversable
-    ghc-options: -Wall -Wnoncanonical-monad-instances
+    ghc-options: -Wall -Wnoncanonical-monad-instances -Wunused-packages
                  -Wincomplete-uni-patterns -Wincomplete-record-updates
                  -Wredundant-constraints -Widentities
+                 -- See Plutus Tx readme
+                 -fobject-code -fno-ignore-interface-pragmas -fno-omit-interface-pragmas
+
+flag defer-plugin-errors
+    description:
+        Defer errors from the plugin, useful for things like Haddock that can't handle it.
+    default: False
+    manual: True
 
 library
     import: lang
@@ -34,14 +42,9 @@ library
         Data.Text.Extras
         Data.UUID.Extras
         Plutus.Contract
-        Plutus.Contract.Effects.AwaitSlot
-        Plutus.Contract.Effects.AwaitTxConfirmed
-        Plutus.Contract.Effects.Instance
-        Plutus.Contract.Effects.ExposeEndpoint
-        Plutus.Contract.Effects.OwnPubKey
-        Plutus.Contract.Effects.UtxoAt
-        Plutus.Contract.Effects.WatchAddress
-        Plutus.Contract.Effects.WriteTx
+        Plutus.Contract.CardanoAPI
+        Plutus.Contract.CardanoAPITemp
+        Plutus.Contract.Effects
         Plutus.Contract.Request
         Plutus.Contract.Checkpoint
         Plutus.Contract.Constraints
@@ -49,10 +52,11 @@ library
         Plutus.Contract.Schema
         Plutus.Contract.Trace
         Plutus.Contract.Trace.RequestHandler
-        Plutus.Contract.Servant
         Plutus.Contract.Resumable
         Plutus.Contract.StateMachine
         Plutus.Contract.StateMachine.OnChain
+        Plutus.Contract.StateMachine.MintingPolarity
+        Plutus.Contract.StateMachine.ThreadToken
         Plutus.Contract.Tx
         Plutus.Contract.Types
         Plutus.Contract.Util
@@ -67,7 +71,6 @@ library
         Wallet.Emulator.Folds
         Wallet.Emulator.LogMessages
         Wallet.Emulator.NodeClient
-        Wallet.Emulator.Notify
         Wallet.Emulator.MultiAgent
         Wallet.Emulator.Stream
         Wallet.Emulator.Wallet
@@ -95,51 +98,67 @@ library
         Plutus.Trace.Tag
     hs-source-dirs: src
     build-depends:
+        plutus-chain-index -any,
+        plutus-core -any,
         plutus-ledger -any,
         plutus-ledger-api -any,
         plutus-tx -any,
         freer-extras -any,
     build-depends:
+        cardano-api -any,
+        cardano-ledger-core -any,
+    -- Temporary for Plutus.Contract.CardanoAPITemp
+    build-depends:
+        cardano-ledger-alonzo -any,
+        cardano-ledger-shelley-ma -any,
+        ouroboros-consensus-shelley -any,
+        shelley-spec-ledger -any,
+        strict-containers -any,
+    build-depends:
         aeson >= 1.5.2,
+        aeson-pretty -any,
         base >=4.7 && <5,
+        bytestring -any,
         containers -any,
+        cryptonite >=0.25,
         data-default -any,
         deepseq -any,
-        lens -any,
-        text -any,
-        hashable -any,
-        bytestring -any,
-        servant -any,
-        servant-server -any,
-        serialise -any,
-        mtl -any,
-        semigroupoids -any,
-        profunctors -any,
-        template-haskell -any,
-        transformers -any,
-        warp -any,
-        newtype-generics -any,
-        hedgehog -any,
-        transformers-base -any,
-        monad-control -any,
-        mmorph -any,
-        row-types >= 1.0.1.0,
-        freer-simple -any,
-        prettyprinter >=1.1.0.1,
-        semigroups -any,
-        cryptonite >=0.25,
         fingertree -any,
-        uuid -any,
-        aeson-pretty -any,
-        QuickCheck -any,
+        foldl -any,
+        freer-simple -any,
+        hashable -any,
+        hedgehog -any,
+        lens -any,
+        memory -any,
+        mmorph -any,
+        monad-control -any,
+        mtl -any,
+        newtype-generics -any,
+        prettyprinter >=1.1.0.1,
+        profunctors -any,
         quickcheck-dynamic -any,
         random -any,
-        unordered-containers -any,
-        foldl -any,
+        row-types >= 1.0.1.0,
+        semigroupoids -any,
+        semigroups -any,
+        servant -any,
+        serialise -any,
         streaming -any,
-        IntervalMap -any
+        template-haskell -any,
+        text -any,
+        transformers -any,
+        unordered-containers -any,
+        uuid -any,
+        IntervalMap -any,
+        QuickCheck -any,
 
     if !(impl(ghcjs) || os(ghcjs))
+        build-depends: plutus-tx-plugin -any
+
+    if flag(defer-plugin-errors)
+        ghc-options: -fplugin-opt PlutusTx.Plugin:defer-errors
+
+    if !(impl(ghcjs) || os(ghcjs) || os(windows))
         exposed-modules:
             Plutus.Contract.Test
             Plutus.Contract.Test.ContractModel
@@ -160,6 +179,7 @@ test-suite plutus-contract-test
         Spec.Emulator
         Spec.Rows
         Spec.State
+        Spec.ThreadToken
     build-depends:
         base >=4.9 && <5,
         bytestring -any,
@@ -181,7 +201,8 @@ test-suite plutus-contract-test
         plutus-ledger -any,
         plutus-tx -any,
         freer-simple -any,
-        aeson -any
+        aeson -any,
+        semigroupoids -any
 
     if !(impl(ghcjs) || os(ghcjs))
         build-depends: plutus-tx-plugin -any

@@ -23,7 +23,7 @@ common lang
                         DeriveGeneric StandaloneDeriving DeriveLift
                         GeneralizedNewtypeDeriving DeriveFunctor DeriveFoldable
                         DeriveTraversable MultiParamTypeClasses FlexibleContexts
-    ghc-options: -Wall -Wnoncanonical-monad-instances
+    ghc-options: -Wall -Wnoncanonical-monad-instances -Wunused-packages
                  -Wincomplete-uni-patterns -Wincomplete-record-updates
                  -Wredundant-constraints -Widentities -Wunused-packages
                  -- See Plutus Tx readme
@@ -60,8 +60,6 @@ library
         bytestring -any,
         cborg -any,
         containers -any,
-        cryptonite >=0.25,
-        cardano-crypto -any,
         flat -any,
         hashable -any,
         plutus-core -any,
@@ -77,7 +75,8 @@ library
         deepseq -any,
         newtype-generics -any,
         tagged -any,
-        lens -any
+        lens -any,
+        scientific -any
 
 test-suite plutus-ledger-api-test
     import: lang
@@ -86,8 +85,10 @@ test-suite plutus-ledger-api-test
     hs-source-dirs: test
     other-modules:
         Spec.Interval
+        Spec.Time
     build-depends:
         base >=4.9 && <5,
+        aeson -any,
         plutus-ledger-api -any,
         hedgehog -any,
         tasty -any,

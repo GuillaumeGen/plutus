@@ -33,6 +33,8 @@ module Plutus.V1.Ledger.Interval(
     , isEmpty
     , before
     , after
+    , lowerBound
+    , upperBound
     , strictLowerBound
     , strictUpperBound
     ) where
@@ -41,7 +43,7 @@ import           Codec.Serialise.Class     (Serialise)
 import           Control.DeepSeq           (NFData)
 import           Data.Aeson                (FromJSON, ToJSON)
 import           Data.Hashable             (Hashable)
-import           Data.Text.Prettyprint.Doc (Pretty (pretty), (<+>))
+import           Data.Text.Prettyprint.Doc (Pretty (pretty), comma, (<+>))
 import           GHC.Generics              (Generic)
 import qualified Prelude                   as Haskell
 
@@ -61,6 +63,9 @@ data Interval a = Interval { ivFrom :: LowerBound a, ivTo :: UpperBound a }
 
 instance Functor Interval where
   fmap f (Interval from to) = Interval (f <$> from) (f <$> to)
+
+instance Pretty a => Pretty (Interval a) where
+    pretty (Interval l h) = pretty l <+> comma <+> pretty h
 
 -- | A set extended with a positive and negative infinity.
 data Extended a = NegInf | Finite a | PosInf
@@ -198,9 +203,8 @@ instance Eq a => Eq (Interval a) where
     l == r = ivFrom l == ivFrom r && ivTo l == ivTo r
 
 {-# INLINABLE interval #-}
--- | @interval a b@ includes all values that are greater than or equal
---   to @a@ and smaller than @b@. Therefore it includes @a@ but not it
---   does not include @b@.
+-- | @interval a b@ includes all values that are greater than or equal to @a@
+-- and smaller than or equal to @b@. Therefore it includes @a@ and @b@.
 interval :: a -> a -> Interval a
 interval s s' = Interval (lowerBound s) (upperBound s')
 
@@ -216,7 +220,7 @@ from s = Interval (lowerBound s) (UpperBound PosInf True)
 
 {-# INLINABLE to #-}
 -- | @to a@ is an 'Interval' that includes all values that are
---  smaller than @a@.
+--  smaller than or equal to @a@.
 to :: a -> Interval a
 to s = Interval (LowerBound NegInf True) (upperBound s)
 
@@ -238,7 +242,7 @@ member a i = i `contains` singleton a
 {-# INLINABLE overlaps #-}
 -- | Check whether two intervals overlap, that is, whether there is a value that
 --   is a member of both intervals.
-overlaps :: Ord a => Interval a -> Interval a -> Bool
+overlaps :: (Enum a, Ord a) => Interval a -> Interval a -> Bool
 overlaps l r = not $ isEmpty (l `intersection` r)
 
 {-# INLINABLE intersection #-}
@@ -261,11 +265,17 @@ contains (Interval l1 h1) (Interval l2 h2) = l1 <= l2 && h2 <= h1
 
 {-# INLINABLE isEmpty #-}
 -- | Check if an 'Interval' is empty.
-isEmpty :: Ord a => Interval a -> Bool
+isEmpty :: (Enum a, Ord a) => Interval a -> Bool
 isEmpty (Interval (LowerBound v1 in1) (UpperBound v2 in2)) = case v1 `compare` v2 of
-    LT -> False
+    LT -> if openInterval then checkEnds v1 v2 else False
     GT -> True
     EQ -> not (in1 && in2)
+    where
+        openInterval = in1 == False && in2 == False
+        -- | We check two finite ends to figure out if there are elements between them.
+        -- If there are no elements then the interval is empty (#3467).
+        checkEnds (Finite v1') (Finite v2') = (succ v1') `compare` v2' == EQ
+        checkEnds _ _                       = False
 
 {-# INLINABLE before #-}
 -- | Check if a value is earlier than the beginning of an 'Interval'.

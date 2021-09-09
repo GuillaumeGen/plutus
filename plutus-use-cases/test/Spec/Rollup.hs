@@ -1,6 +1,6 @@
 {-# LANGUAGE ExplicitForAll   #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeApplications #-}
+
 module Spec.Rollup where
 
 import qualified Control.Foldl                 as L
@@ -47,7 +47,7 @@ render trace = do
                S.fst'
                $ run
                $ foldEmulatorStreamM (L.generalize (showBlockchainFold allWallets'))
-               $ takeUntilSlot 20
+               $ takeUntilSlot 21
                $ runEmulatorStream def trace
         allWallets' = fmap (\w -> (pubKeyHash (walletPubKey w), w)) (Wallet <$> [1..10])
     case result of

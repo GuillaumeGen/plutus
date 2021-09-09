@@ -22,11 +22,11 @@ module PlutusCore.Default.Universe
     ( DefaultUni (..)
     , pattern DefaultUniList
     , pattern DefaultUniPair
-    , pattern DefaultUniString
     , module Export  -- Re-exporting universes infrastructure for convenience.
     ) where
 
 import           PlutusCore.Core
+import           PlutusCore.Data
 import           PlutusCore.Parsable
 
 import           Control.Applicative
@@ -65,8 +65,8 @@ to juggle values of polymorphic built-in types instantiated with non-built-in ty
 such a 'Type').
 
 Finally, it is not necessarily the case that we need to allow embedding PLC terms into meta-constants.
-We already allow built-in names with polymorphic types. There might be a way to utilize this feature
-and have meta-constructors as builtin names.
+We already allow built-in functions with polymorphic types. There might be a way to utilize this
+feature and have meta-constructors as built-in functions.
 -}
 
 -- See Note [Representing polymorphism].
@@ -74,12 +74,13 @@ and have meta-constructors as builtin names.
 data DefaultUni a where
     DefaultUniInteger    :: DefaultUni (Esc Integer)
     DefaultUniByteString :: DefaultUni (Esc BS.ByteString)
-    DefaultUniChar       :: DefaultUni (Esc Char)
+    DefaultUniString     :: DefaultUni (Esc Text.Text)
     DefaultUniUnit       :: DefaultUni (Esc ())
     DefaultUniBool       :: DefaultUni (Esc Bool)
     DefaultUniProtoList  :: DefaultUni (Esc [])
     DefaultUniProtoPair  :: DefaultUni (Esc (,))
     DefaultUniApply      :: !(DefaultUni (Esc f)) -> !(DefaultUni (Esc a)) -> DefaultUni (Esc (f a))
+    DefaultUniData       :: DefaultUni (Esc Data)
 
 -- GHC infers crazy types for these two and the straightforward ones break pattern matching,
 -- so we just leave GHC with its craziness.
@@ -88,7 +89,6 @@ pattern DefaultUniList uniA =
 pattern DefaultUniPair uniA uniB =
     DefaultUniProtoPair `DefaultUniApply` uniA `DefaultUniApply` uniB
 -- Just for backwards compatibility, probably should be removed at some point.
-pattern DefaultUniString = DefaultUniList DefaultUniChar
 
 deriveGEq ''DefaultUni
 
@@ -99,7 +99,7 @@ noMoreTypeFunctions (f `DefaultUniApply` _) = noMoreTypeFunctions f
 instance ToKind DefaultUni where
     toKind DefaultUniInteger        = kindOf DefaultUniInteger
     toKind DefaultUniByteString     = kindOf DefaultUniByteString
-    toKind DefaultUniChar           = kindOf DefaultUniChar
+    toKind DefaultUniString         = kindOf DefaultUniString
     toKind DefaultUniUnit           = kindOf DefaultUniUnit
     toKind DefaultUniBool           = kindOf DefaultUniBool
     toKind DefaultUniProtoList      = kindOf DefaultUniProtoList
@@ -109,6 +109,7 @@ instance ToKind DefaultUni where
         -- but having @error@ should be fine.
         Type _            -> error "Panic: a type function can't be of type *"
         KindArrow _ _ cod -> cod
+    toKind DefaultUniData = kindOf DefaultUniData
 
 instance HasUniApply DefaultUni where
     matchUniApply (DefaultUniApply f a) _ h = h f a
@@ -118,27 +119,25 @@ instance GShow DefaultUni where gshowsPrec = showsPrec
 instance Show (DefaultUni a) where
     show DefaultUniInteger             = "integer"
     show DefaultUniByteString          = "bytestring"
-    show DefaultUniChar                = "char"
+    show DefaultUniString              = "string"
     show DefaultUniUnit                = "unit"
     show DefaultUniBool                = "bool"
     show DefaultUniProtoList           = "list"
     show DefaultUniProtoPair           = "pair"
     show (uniF `DefaultUniApply` uniB) = case uniF of
-        DefaultUniProtoList -> case uniB of
-            DefaultUniChar -> "string"
-            _              -> concat ["list (", show uniB, ")"]
-        DefaultUniProtoPair -> concat ["pair (", show uniB, ")"]
-        DefaultUniProtoPair `DefaultUniApply` uniA -> concat ["pair (", show uniA, ") (", show uniB, ")"]
+        DefaultUniProtoList                          -> concat ["list (", show uniB, ")"]
+        DefaultUniProtoPair                          -> concat ["pair (", show uniB, ")"]
+        DefaultUniProtoPair `DefaultUniApply` uniA   -> concat ["pair (", show uniA, ") (", show uniB, ")"]
         uniG `DefaultUniApply` _ `DefaultUniApply` _ -> noMoreTypeFunctions uniG
+    show DefaultUniData = "data"
 
 -- See Note [Parsing horribly broken].
 instance Parsable (SomeTypeIn (Kinded DefaultUni)) where
     parse "bool"       = Just . SomeTypeIn $ Kinded DefaultUniBool
     parse "bytestring" = Just . SomeTypeIn $ Kinded DefaultUniByteString
-    parse "char"       = Just . SomeTypeIn $ Kinded DefaultUniChar
+    parse "string"     = Just . SomeTypeIn $ Kinded DefaultUniString
     parse "integer"    = Just . SomeTypeIn $ Kinded DefaultUniInteger
     parse "unit"       = Just . SomeTypeIn $ Kinded DefaultUniUnit
-    parse "string"     = Just . SomeTypeIn $ Kinded DefaultUniString
     parse text         = asum
         [ do
             aT <- Text.stripPrefix "[" text >>= Text.stripSuffix "]"
@@ -163,11 +162,12 @@ instance Parsable (SomeTypeIn (Kinded DefaultUni)) where
 
 instance DefaultUni `Contains` Integer       where knownUni = DefaultUniInteger
 instance DefaultUni `Contains` BS.ByteString where knownUni = DefaultUniByteString
-instance DefaultUni `Contains` Char          where knownUni = DefaultUniChar
+instance DefaultUni `Contains` Text.Text     where knownUni = DefaultUniString
 instance DefaultUni `Contains` ()            where knownUni = DefaultUniUnit
 instance DefaultUni `Contains` Bool          where knownUni = DefaultUniBool
 instance DefaultUni `Contains` []            where knownUni = DefaultUniProtoList
 instance DefaultUni `Contains` (,)           where knownUni = DefaultUniProtoPair
+instance DefaultUni `Contains` Data          where knownUni = DefaultUniData
 
 instance (DefaultUni `Contains` f, DefaultUni `Contains` a) => DefaultUni `Contains` f a where
     knownUni = knownUni `DefaultUniApply` knownUni
@@ -184,29 +184,31 @@ instance Closed DefaultUni where
     type DefaultUni `Everywhere` constr =
         ( constr `Permits` Integer
         , constr `Permits` BS.ByteString
-        , constr `Permits` Char
+        , constr `Permits` Text.Text
         , constr `Permits` ()
         , constr `Permits` Bool
         , constr `Permits` []
         , constr `Permits` (,)
+        , constr `Permits` Data
         )
 
     -- See Note [Stable encoding of tags].
     encodeUni DefaultUniInteger           = [0]
     encodeUni DefaultUniByteString        = [1]
-    encodeUni DefaultUniChar              = [2]
+    encodeUni DefaultUniString            = [2]
     encodeUni DefaultUniUnit              = [3]
     encodeUni DefaultUniBool              = [4]
     encodeUni DefaultUniProtoList         = [5]
     encodeUni DefaultUniProtoPair         = [6]
     encodeUni (DefaultUniApply uniF uniA) = 7 : encodeUni uniF ++ encodeUni uniA
+    encodeUni DefaultUniData              = [8]
 
     -- See Note [Decoding universes].
     -- See Note [Stable encoding of tags].
     withDecodedUni k = peelUniTag >>= \case
         0 -> k DefaultUniInteger
         1 -> k DefaultUniByteString
-        2 -> k DefaultUniChar
+        2 -> k DefaultUniString
         3 -> k DefaultUniUnit
         4 -> k DefaultUniBool
         5 -> k DefaultUniProtoList
@@ -216,6 +218,7 @@ instance Closed DefaultUni where
                 withDecodedUni @DefaultUni $ \uniA ->
                     withApplicable uniF uniA $
                         k $ uniF `DefaultUniApply` uniA
+        8 -> k DefaultUniData
         _ -> empty
 
     bring
@@ -223,7 +226,7 @@ instance Closed DefaultUni where
         => proxy constr -> DefaultUni (Esc a) -> (constr a => r) -> r
     bring _ DefaultUniInteger    r = r
     bring _ DefaultUniByteString r = r
-    bring _ DefaultUniChar       r = r
+    bring _ DefaultUniString     r = r
     bring _ DefaultUniUnit       r = r
     bring _ DefaultUniBool       r = r
     bring p (DefaultUniProtoList `DefaultUniApply` uniA) r =
@@ -232,3 +235,4 @@ instance Closed DefaultUni where
         bring p uniA $ bring p uniB r
     bring _ (f `DefaultUniApply` _ `DefaultUniApply` _ `DefaultUniApply` _) _ =
         noMoreTypeFunctions f
+    bring _ DefaultUniData r = r

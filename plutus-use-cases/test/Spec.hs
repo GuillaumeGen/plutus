@@ -18,7 +18,9 @@ import qualified Spec.PubKey
 import qualified Spec.Rollup
 import qualified Spec.Stablecoin
 import qualified Spec.TokenAccount
+import qualified Spec.Uniswap
 import qualified Spec.Vesting
+
 import           Test.Tasty
 import           Test.Tasty.Hedgehog       (HedgehogTestLimit (..))
 
@@ -52,5 +54,6 @@ tests = localOption limit $ testGroup "use cases" [
     Spec.Prism.tests,
     Spec.Stablecoin.tests,
     Spec.Auction.tests,
-    Spec.Governance.tests
+    Spec.Governance.tests,
+    Spec.Uniswap.tests
     ]

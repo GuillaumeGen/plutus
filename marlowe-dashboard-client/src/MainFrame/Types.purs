@@ -10,28 +10,34 @@ module MainFrame.Types
 import Prelude
 import Analytics (class IsEvent, defaultEvent, toEvent)
 import Contract.Types (State) as Contract
+import Dashboard.Types (Action, State) as Dashboard
 import Data.Either (Either)
 import Data.Generic.Rep (class Generic)
 import Data.Map (Map)
 import Data.Maybe (Maybe(..))
-import Marlowe.PAB (PlutusAppId, CombinedWSStreamToServer)
+import Data.Time.Duration (Minutes)
+import Halogen as H
+import Halogen.Extra (LifecycleEvent)
+import LoadingSubmitButton.Types as LoadingSubmitButton
+import Marlowe.PAB (PlutusAppId)
 import Marlowe.Semantics (Slot)
-import Pickup.Types (Action, State) as Pickup
-import Play.Types (Action, State) as Play
 import Plutus.PAB.Webserver.Types (CombinedWSStreamToClient)
---import Plutus.PAB.Webserver.Types (CombinedWSStreamToClient, CombinedWSStreamToServer)
 import Toast.Types (Action, State) as Toast
+import Tooltip.Types (ReferenceId)
+import Types (CombinedWSStreamToServer)
 import WalletData.Types (WalletDetails, WalletLibrary)
 import Web.Socket.Event.CloseEvent (CloseEvent, reason) as WS
 import WebSocket.Support (FromSocket) as WS
+import Welcome.Types (Action, State) as Welcome
 
--- The app exists in one of two main subStates: the "pickup" state for when you have
--- no wallet, and all you can do is pick one up or generate a new one; and the "play"
--- state for when you have picked up a wallet, and can do all of the things.
+-- The app exists in one of two main subStates: the "welcome" state for when you have
+-- no wallet, and all you can do is generate one or create a new one; and the "dashboard"
+-- state for when you have selected a wallet, and can do all of the things.
 type State
   = { webSocketStatus :: WebSocketStatus
     , currentSlot :: Slot
-    , subState :: Either Pickup.State Play.State
+    , tzOffset :: Minutes
+    , subState :: Either Welcome.State Dashboard.State
     , toast :: Toast.State
     }
 
@@ -48,7 +54,10 @@ instance showWebSocketStatus :: Show WebSocketStatus where
 
 ------------------------------------------------------------
 type ChildSlots
-  = (
+  = ( tooltipSlot :: forall query. H.Slot query Void ReferenceId
+    , hintSlot :: forall query. H.Slot query Void String
+    , submitButtonSlot :: H.Slot LoadingSubmitButton.Query LoadingSubmitButton.Message String
+    , lifeCycleSlot :: forall query. H.Slot query LifecycleEvent String
     )
 
 ------------------------------------------------------------
@@ -63,18 +72,18 @@ data Msg
 ------------------------------------------------------------
 data Action
   = Init
-  | EnterPickupState WalletLibrary WalletDetails (Map PlutusAppId Contract.State)
-  | EnterPlayState WalletLibrary WalletDetails
-  | PickupAction Pickup.Action
-  | PlayAction Play.Action
+  | EnterWelcomeState WalletLibrary WalletDetails (Map PlutusAppId Contract.State)
+  | EnterDashboardState WalletLibrary WalletDetails
+  | WelcomeAction Welcome.Action
+  | DashboardAction Dashboard.Action
   | ToastAction Toast.Action
 
 -- | Here we decide which top-level queries to track as GA events, and
 -- how to classify them.
 instance actionIsEvent :: IsEvent Action where
   toEvent Init = Just $ defaultEvent "Init"
-  toEvent (EnterPickupState _ _ _) = Just $ defaultEvent "EnterPickupState"
-  toEvent (EnterPlayState _ _) = Just $ defaultEvent "EnterPlayState"
-  toEvent (PickupAction pickupAction) = toEvent pickupAction
-  toEvent (PlayAction playAction) = toEvent playAction
+  toEvent (EnterWelcomeState _ _ _) = Just $ defaultEvent "EnterWelcomeState"
+  toEvent (EnterDashboardState _ _) = Just $ defaultEvent "EnterDashboardState"
+  toEvent (WelcomeAction welcomeAction) = toEvent welcomeAction
+  toEvent (DashboardAction dashboardAction) = toEvent dashboardAction
   toEvent (ToastAction toastAction) = toEvent toastAction

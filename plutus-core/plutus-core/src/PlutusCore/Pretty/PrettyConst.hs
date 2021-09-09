@@ -13,7 +13,11 @@
 
 module PlutusCore.Pretty.PrettyConst where
 
+import           PlutusCore.Data
+
+import           Codec.Serialise                    (serialise)
 import qualified Data.ByteString                    as BS
+import qualified Data.ByteString.Lazy               as BSL
 import           Data.Coerce
 import           Data.Foldable                      (fold)
 import           Data.Proxy
@@ -92,7 +96,7 @@ displayConst = render . prettyConst
 
 -- This instance for String quotes control characters (which is what we want)
 -- but also Unicode characters (\8704 and so on).
-deriving via PrettyAny Char    instance NonDefaultPrettyBy ConstConfig Char
+deriving via PrettyAny T.Text  instance NonDefaultPrettyBy ConstConfig T.Text
 deriving via PrettyAny ()      instance NonDefaultPrettyBy ConstConfig ()
 deriving via PrettyAny Bool    instance NonDefaultPrettyBy ConstConfig Bool
 deriving via PrettyAny Integer instance NonDefaultPrettyBy ConstConfig Integer
@@ -110,6 +114,9 @@ asBytes x = Text 2 $ T.pack $ addLeadingZero $ showHex x mempty
           addLeadingZero
               | x < 16    = ('0' :)
               | otherwise = id
+
+instance PrettyBy ConstConfig Data where
+    prettyBy c d = prettyBy c $ BSL.toStrict $ serialise d
 
 instance GShow uni => Pretty (SomeTypeIn uni) where
     pretty (SomeTypeIn uni) = pretty $ gshow uni
