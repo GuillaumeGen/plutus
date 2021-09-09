@@ -44,6 +44,7 @@ module Plutus.Contracts.Future(
     , testAccounts
     , setupTokensTrace
     , saveFlat
+    , savePirFile
     ) where
 
 import           Control.Lens                     (makeClassyPrisms, prism', review)
@@ -666,3 +667,6 @@ Just result =
     getPir $$(PlutusTx.compile [|| mkValidator ||])
 saveFlat :: Haskell.String -> Haskell.IO ()
 saveFlat = flip BS.writeFile (flat result)
+
+savePirFile :: Haskell.String -> Haskell.IO ()
+savePirFile = flip Haskell.writeFile (show $ prettyClassicDebug result)

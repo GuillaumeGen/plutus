@@ -29,6 +29,7 @@ module Plutus.Contracts.MultiSigStateMachine(
     , MultiSigSchema
     , contract
     , saveFlat
+    , savePirFile
     ) where
 
 import           Control.Lens                 (makeClassyPrisms)
@@ -300,3 +301,6 @@ PlutusTx.makeLift ''Input
 Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
 saveFlat :: Haskell.String -> Haskell.IO ()
 saveFlat = flip BS.writeFile (flat result)
+
+savePirFile :: Haskell.String -> Haskell.IO ()
+savePirFile = flip Haskell.writeFile (show $ prettyClassicDebug result)

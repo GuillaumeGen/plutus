@@ -30,7 +30,8 @@ module Plutus.Contracts.PingPong(
     runWaitForUpdate,
     combined,
     simplePingPong,
-    saveFlat
+    saveFlat,
+    savePirFile
     ) where
 
 import           Control.Lens
@@ -200,3 +201,6 @@ PlutusTx.makeLift ''Input
 Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
 saveFlat :: Haskell.String -> Haskell.IO ()
 saveFlat = flip BS.writeFile (flat result)
+
+savePirFile :: Haskell.String -> Haskell.IO ()
+savePirFile = flip Haskell.writeFile (show $ prettyClassicDebug result)

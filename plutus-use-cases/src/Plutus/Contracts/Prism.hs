@@ -62,6 +62,7 @@ module Plutus.Contracts.Prism(
     , PrismError(..)
     , contract
     , saveFlat
+    , savePirFile
     ) where
 
 import           Control.Lens
@@ -140,3 +141,6 @@ contract = awaitPromise $ endpoint @"role" $ \r -> do
 Just result = getPir $$(PlutusTx.compile [|| mkValidator ||])
 saveFlat :: String -> IO ()
 saveFlat = flip BS.writeFile (flat result)
+
+savePirFile :: Haskell.String -> Haskell.IO ()
+savePirFile = flip Haskell.writeFile (show $ prettyClassicDebug result)
